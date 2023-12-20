@@ -1,0 +1,10 @@
+name: cxx
+channels:
+  - conda-forge
+dependencies:
+  - cxx-compiler
+  - cmake
+  - glfw
+  - glad
+  - glm
+  - Boost
