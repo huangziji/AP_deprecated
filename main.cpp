@@ -144,7 +144,7 @@ const int RES_X = 16*40, RES_Y = 9*40;
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-    //glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwSetErrorCallback(errorCallback);
 
     { // window #1
@@ -155,6 +155,7 @@ const int RES_X = 16*40, RES_Y = 9*40;
         window1 = glfwCreateWindow(RES_X, RES_Y, "#1", NULL, NULL);
         glfwMakeContextCurrent(window1);
         glfwSetWindowPos(window1, screenWidth-RES_X, 0);
+        glfwSetWindowAttrib(window1, GLFW_FLOATING, GLFW_TRUE);
         glfwSwapInterval(1);
         gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     }
@@ -203,16 +204,6 @@ void main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 
-    const GLuint prog1 = glCreateProgram();
-    assert(loadShader1(prog1, "../base.frag"));
-    const GLuint prog2 = glCreateProgram();
-    assert(loadShader2(prog2, "../base.glsl"));
-
-    GLint iChannel0 = glGetUniformLocation(prog1, "iChannel0");
-    glProgramUniform1i(prog1, iChannel0, 0);
-    GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
-    glProgramUniform1i(prog1, iChannel1, 1);
-
     // framebuffer
     GLuint fbo, tex, tex2;
     {
@@ -246,76 +237,75 @@ void main() {
         glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
 
-        GLuint cbo;
-        glGenBuffers(1, &cbo);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
-        glBufferData(GL_DRAW_INDIRECT_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
-
-        GLuint ibo;
-        uint8_t data[] = {0,1,2,3,4,5,6,7,8,9,10,11,12};
-        glGenBuffers(1, &ibo);
-        glBindBuffer(GL_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
-        glEnableVertexAttribArray(1);
-        glVertexAttribIPointer(1, 1, GL_UNSIGNED_BYTE, 1, 0);
-        glVertexAttribDivisor(1, 1);
-
         GLuint vbo;
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, 1024, NULL, GL_STATIC_DRAW);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 12, 0);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+        GLuint ibo;
+        glGenBuffers(1, &ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+
+        GLuint cbo;
+        glGenBuffers(1, &cbo);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     }
 
-    typedef int (*plugFunction)(float);
-    plugFunction mainGeometry, mainAnimation;
+    typedef int (plugFunction1)(void);
+    typedef void (plugFunction2)(float*, float);
+    plugFunction1 *mainGeometry;
+    plugFunction2 *mainAnimation;
     const char *libraryFilename = "libmodule.so";
     void *libraryHandle = NULL;
     long lastModTime;
     struct stat libStat;
     int drawCount;
 
+    long prog1_lastModTime;
+    const char prog1Filename[] = "../base.frag";
+    const GLuint prog1 = glCreateProgram();
+    const GLuint prog2 = glCreateProgram();
+    assert(loadShader2(prog2, "../base.glsl"));
+
     while (!glfwWindowShouldClose(window1))
     {
-        stat(libraryFilename, &libStat);
-        if (libStat.st_mtime != lastModTime) {
-            lastModTime = libStat.st_mtime;
-            printf("INFO: reloading file %s\n", libraryFilename);
-
-            usleep(100000);
-            if (libraryHandle) {
-                assert(!dlclose(libraryHandle));
-            }
-            libraryHandle = dlopen(libraryFilename, RTLD_NOW);
-            assert(libraryHandle);
-            mainAnimation = (plugFunction)dlsym(libraryHandle, "mainAnimation");
-            assert(mainAnimation);
-            mainGeometry  = (plugFunction)dlsym(libraryHandle, "mainGeometry");
-            assert(mainGeometry);
-            drawCount = mainGeometry(0);
+        stat(prog1Filename, &libStat);
+        if (prog1_lastModTime != libStat.st_mtime) {
+            usleep(10000);
+            prog1_lastModTime = libStat.st_mtime;
+            loadShader1(prog1, prog1Filename);
+            GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
+            glProgramUniform1i(prog1, iChannel1, 1);
         }
 
-        float t = glfwGetTime();
+        stat(libraryFilename, &libStat);
+        if (libStat.st_mtime != lastModTime) {
+            if (libraryHandle) {
+                assert(dlclose(libraryHandle) == 0);
+            }
+            libraryHandle = dlopen(libraryFilename, RTLD_LAZY);
+            if (!libraryHandle) continue;
+
+            printf("INFO: reloading file %s\n", libraryFilename);
+            lastModTime = libStat.st_mtime;
+
+            mainAnimation = (plugFunction2*)dlsym(libraryHandle, "mainAnimation");
+            assert(mainAnimation);
+            mainGeometry  = (plugFunction1*)dlsym(libraryHandle, "mainGeometry");
+            assert(mainGeometry);
+            drawCount = mainGeometry();
+        }
+
+        double xpos, ypos;
+        glfwGetCursorPos(window1, &xpos, &ypos);
+        const float t = glfwGetTime();
         const float fov = 1.2;
-        struct { float x,y,z; }ro, ta;
-        ta = {0,0,0};
-        ro = {5,2,5};
-        //ro = {sin(t)*5,2,cos(t)*5};
-        ro.x += ta.x, ro.y += ta.y, ro.z += ta.z;
-        mainAnimation(t);
-
-        const float data[16] = {
-            RES_X, RES_Y, 0, 0,
-            t, 0, fov, 0,
-            ro.x, ro.y, ro.z, 0,
-            ta.x, ta.y, ta.z, 0,
-        };
-
+        float data[16] = { RES_X, RES_Y, float(xpos), float(ypos), t, 0, fov, 0, };
+        mainAnimation(data + 8, t);
         glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(data), data);
 
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthFunc(GL_LESS);
+        glEnable(GL_BLEND);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -323,8 +313,19 @@ void main() {
         glClearColor(0,0,0,1);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         glUseProgram(prog2);
-        glMultiDrawArraysIndirect(GL_TRIANGLE_STRIP, NULL, drawCount, 0);
+        if (data[7] < 0.5) {
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+        } else { // wire mode
+            glLineWidth(1.0);
+            glPointSize(2.0);
+            glDisable(GL_CULL_FACE);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+            glMultiDrawElementsIndirect(GL_POINTS, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
 
+        glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -337,21 +338,17 @@ void main() {
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-        //glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
-        //glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        //glReadBuffer(GL_COLOR_ATTACHMENT0);
-        //glDrawBuffer(GL_BACK);
-        //glBlitFramebuffer(0,0,RES_X,RES_Y,0,0,RES_X,RES_Y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+//        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+//        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+//        glReadBuffer(GL_COLOR_ATTACHMENT0);
+//        glDrawBuffer(GL_BACK);
+//        glBlitFramebuffer(0,0,RES_X,RES_Y,0,0,RES_X,RES_Y, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
         glfwSwapBuffers(window1);
         glfwPollEvents();
     }
 
-    // Unload the library when done
-    if (dlclose(libraryHandle)) {
-        fprintf(stderr, "ERROR: fail to close file %s\n", libraryFilename);
-    }
-
+    assert(dlclose(libraryHandle) == 0);
     int err = glGetError();
     if (err) fprintf(stderr, "ERROR: %x\n", err);
     glfwDestroyWindow(window1);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(untitled)
+project(Animus)
 
 set(CMAKE_PREFIX_PATH "/home/will/.local/mambaforge/envs/cxx")
 include_directories(/home/will/.local/mambaforge/envs/cxx/include)

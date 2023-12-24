@@ -3,7 +3,7 @@ precision mediump float;
 
 layout (std140) uniform INPUT {
     vec4 iResolution;
-    float iTime, iFrame, fov, _pad1;
+    float iTime, iFrame, fov, iDrawWire;
     vec3 cameraPos, _pad2;
     vec3 targetPos, _pad3;
 };
@@ -29,13 +29,16 @@ mat4 perspective(float fov, float ar, float n, float f)
 #endif
 
 _varying vec3 pos;
+_varying vec3 nor;
 
 #ifdef _VS
-layout (location = 0) in vec4 a_Vertex;
-layout (location = 1) in int a_DrawID;
+layout (location = 0) in vec3 a_Vertex;
+layout (location = 1) in vec3 a_Normal;
+layout (location = 2) in int a_DrawID;
 void main()
 {
-    pos = vec3(1.-a_Vertex.xyz*2.) + vec3(1,a_DrawID*2,0);
+    nor = a_Normal;
+    pos = a_Vertex.xyz + vec3(0,a_DrawID,0);
 
     float ar = iResolution.x/iResolution.y;
     mat3 ca = setCamera(cameraPos, targetPos, 0.0);
@@ -46,7 +49,15 @@ void main()
 out vec4 fragColor;
 void main(void)
 {
-    vec3 nor = normalize(cross(dFdx(pos), dFdy(pos)));
-    fragColor = vec4(nor, 1.0);
+    if (iDrawWire > 0.5) {
+        fragColor = vec4(1.0);
+        return;
+    }
+    vec3 fnor = normalize(cross(dFdx(pos), dFdy(pos)));
+    vec3 rd = normalize(pos - cameraPos);
+    float aa = 1.;//smoothstep(0.0, 0.15, -dot(normalize(nor), rd));
+    vec3 col = vec3(0);
+    col += nor * .5 + .5;//mix(nor, fnor, .2);
+    fragColor = vec4(col, aa);
 }
 #endif
