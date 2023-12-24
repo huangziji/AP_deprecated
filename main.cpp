@@ -2,17 +2,15 @@
 #include <glad/glad.h>
 #include <stdio.h>
 #include <assert.h>
-#include <math.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 static int loadShader1(GLuint prog, const char *filename)
 {
     FILE *f = fopen(filename, "r");
     if (!f) {
         fprintf(stderr, "ERROR: file %s not found.", filename);
-        return 0;
+        return 1;
     }
     fseek(f, 0, SEEK_END);
     long length = ftell(f);
@@ -39,7 +37,7 @@ static int loadShader1(GLuint prog, const char *filename)
             int length; glGetShaderiv(fs, GL_INFO_LOG_LENGTH, &length);
             char message[length]; glGetShaderInfoLog(fs, length, &length, message);
             fprintf(stderr, "ERROR: fail to compile fragment shader. file %s\n%s\n", filename, message);
-            return 0;
+            return 2;
         }
         glAttachShader(prog, fs);
         glDeleteShader(fs);
@@ -66,7 +64,7 @@ static int loadShader1(GLuint prog, const char *filename)
 
     glLinkProgram(prog);
     glValidateProgram(prog);
-    return 1;
+    return 0;
 }
 
 static int loadShader2(GLuint prog, const char *filename)
@@ -74,7 +72,7 @@ static int loadShader2(GLuint prog, const char *filename)
     FILE *f = fopen(filename, "r");
     if (!f) {
         fprintf(stderr, "ERROR: file %s not found.", filename);
-        return 0;
+        return 1;
     }
     fseek(f, 0, SEEK_END);
     long length = ftell(f);
@@ -104,7 +102,7 @@ static int loadShader2(GLuint prog, const char *filename)
             int length; glGetShaderiv(fs, GL_INFO_LOG_LENGTH, &length);
             char message[length]; glGetShaderInfoLog(fs, length, &length, message);
             fprintf(stderr, "ERROR: fail to compile fragment shader. file %s\n%s\n", filename, message);
-            return 0;
+            return 2;
         }
         glAttachShader(prog, fs);
         glDeleteShader(fs);
@@ -120,7 +118,7 @@ static int loadShader2(GLuint prog, const char *filename)
             int length; glGetShaderiv(vs, GL_INFO_LOG_LENGTH, &length);
             char message[length]; glGetShaderInfoLog(vs, length, &length, message);
             fprintf(stderr, "ERROR: fail to compile vertex shader. file %s\n%s\n", filename, message);
-            return 0;
+            return 2;
         }
         glAttachShader(prog, vs);
         glDeleteShader(vs);
@@ -128,7 +126,7 @@ static int loadShader2(GLuint prog, const char *filename)
 
     glLinkProgram(prog);
     glValidateProgram(prog);
-    return 1;
+    return 0;
 }
 
 static void errorCallback(int _, const char* desc)
@@ -138,8 +136,16 @@ static void errorCallback(int _, const char* desc)
 
 int main(int argc, char *argv[])
 {
-const int RES_X = 16*40, RES_Y = 9*40;
+    const int RES_X = 16*40, RES_Y = 9*40;
     GLFWwindow *window1;
+
+#define ENABLE_FFMPEG 0
+#if ENABLE_FFMPEG
+    const char cmd[] = "LD_LIBRARY_PATH=/usr/bin ffmpeg -r 60 -f rawvideo -pix_fmt rgb24 -s 640x360"
+                       " -i pipe: -c:v libx264 -c:a aac"
+                       " -preset fast -y -pix_fmt yuv420p -crf 21 -vf vflip 1.mp4";
+    FILE *pipe = popen(cmd, "w");
+#endif
 
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -205,21 +211,21 @@ void main() {
     }
 
     // framebuffer
-    GLuint fbo, tex, tex2;
+    GLuint fbo, tex1, tex2;
     {
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_2D, tex);
+        glGenTextures(1, &tex1);
+        glBindTexture(GL_TEXTURE_2D, tex1);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_X, RES_Y);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        glGenTextures(1, &tex2); // clean up as program ends
+        glGenTextures(1, &tex2);
         glBindTexture(GL_TEXTURE_2D, tex2);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, RES_X, RES_Y);
         glBindTexture(GL_TEXTURE_2D, 0);
 
-        glGenFramebuffers(1, &fbo); // clean up as program ends
+        glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex1, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex2, 0);
         glDrawBuffer(GL_COLOR_ATTACHMENT0);
         glReadBuffer(GL_NONE);
@@ -227,25 +233,19 @@ void main() {
     }
 
     {
-        GLuint vao;
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
-
         GLuint ubo;
         glGenBuffers(1, &ubo);
         glBindBuffer(GL_UNIFORM_BUFFER, ubo);
         glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
 
-        GLuint vbo;
+        GLuint vao, vbo, ibo, cbo;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
         glGenBuffers(1, &vbo);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-
-        GLuint ibo;
         glGenBuffers(1, &ibo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-
-        GLuint cbo;
         glGenBuffers(1, &cbo);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     }
@@ -261,18 +261,19 @@ void main() {
     int drawCount;
 
     long prog1_lastModTime;
-    const char prog1Filename[] = "../base.frag";
+    const char prog1_filename[] = "../base.frag";
     const GLuint prog1 = glCreateProgram();
     const GLuint prog2 = glCreateProgram();
-    assert(loadShader2(prog2, "../base.glsl"));
+    assert(loadShader2(prog2, "../base.glsl") == 0);
 
     while (!glfwWindowShouldClose(window1))
     {
-        stat(prog1Filename, &libStat);
+        stat(prog1_filename, &libStat);
         if (prog1_lastModTime != libStat.st_mtime) {
-            usleep(10000);
+            int err = loadShader1(prog1, prog1_filename);
+            if (err == 1) {assert(0); continue;}
             prog1_lastModTime = libStat.st_mtime;
-            loadShader1(prog1, prog1Filename);
+
             GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
             glProgramUniform1i(prog1, iChannel1, 1);
         }
@@ -313,9 +314,9 @@ void main() {
         glClearColor(0,0,0,1);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         glUseProgram(prog2);
-        if (data[7] < 0.5) {
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
-        } else { // wire mode
+        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+
+        if (data[7] > 0.5) {
             glLineWidth(1.0);
             glPointSize(2.0);
             glDisable(GL_CULL_FACE);
@@ -332,7 +333,7 @@ void main() {
         glViewport(0,0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT);
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex);
+        glBindTexture(GL_TEXTURE_2D, tex1);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, tex2);
         glUseProgram(prog1);
@@ -346,7 +347,17 @@ void main() {
 
         glfwSwapBuffers(window1);
         glfwPollEvents();
+
+#if ENABLE_FFMPEG
+        static char buffer[RES_X*RES_Y*3];
+        glReadPixels(0,0, RES_X, RES_Y, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+        fwrite(buffer, sizeof(buffer), 1, pipe);
+#endif
     }
+
+#if ENABLE_FFMPEG
+    pclose(pipe);
+#endif
 
     assert(dlclose(libraryHandle) == 0);
     int err = glGetError();

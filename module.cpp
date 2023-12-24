@@ -87,8 +87,7 @@ extern "C" int mainGeometry()
 
     for (auto &v : V) v.normal = normalize(v.normal);
 
-    // TODO: box modeling capsule
-    // material
+    // TODO: box modeling cube sphere capsule cylinder
     // instancing
 
     size_t instanceStartIndex = V.size() * sizeof V[0];
