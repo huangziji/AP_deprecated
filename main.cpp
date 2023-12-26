@@ -92,36 +92,24 @@ static int loadShader2(GLuint prog, const char *filename)
             glDetachShader(prog, shaders[i]);
         }
     }
-    { // fragment shader
-        const char *string[] = { version, "#define _FS\n", source };
-        const GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(fs, 3, string, NULL);
-        glCompileShader(fs);
-        int success;    glGetShaderiv(fs, GL_COMPILE_STATUS, &success);
+
+    for (int i=0; i<2; i++)
+    {
+        const GLenum shaderType[] = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER };
+        const char *string[] = { version, i==0?"#define _VS\n":"#define _FS\n", source };
+        const GLuint sha = glCreateShader(shaderType[i]);
+        glShaderSource(sha, 3, string, NULL);
+        glCompileShader(sha);
+        int success;    glGetShaderiv(sha, GL_COMPILE_STATUS, &success);
         if (!success) {
-            int length; glGetShaderiv(fs, GL_INFO_LOG_LENGTH, &length);
-            char message[length]; glGetShaderInfoLog(fs, length, &length, message);
-            fprintf(stderr, "ERROR: fail to compile fragment shader. file %s\n%s\n", filename, message);
+            int length; glGetShaderiv(sha, GL_INFO_LOG_LENGTH, &length);
+            char message[length]; glGetShaderInfoLog(sha, length, &length, message);
+            fprintf(stderr, "ERROR: fail to compile %s shader. file %s\n%s\n",
+                i==0?"vertex":"fragment", filename, message);
             return 2;
         }
-        glAttachShader(prog, fs);
-        glDeleteShader(fs);
-    }
-    { // vertex shader
-        const char *string[] = { version, "#define _VS\n", source };
-        const GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vs, 3, string, NULL);
-        glCompileShader(vs);
-        int success;
-        glGetShaderiv(vs, GL_COMPILE_STATUS, &success);
-        if (!success) {
-            int length; glGetShaderiv(vs, GL_INFO_LOG_LENGTH, &length);
-            char message[length]; glGetShaderInfoLog(vs, length, &length, message);
-            fprintf(stderr, "ERROR: fail to compile vertex shader. file %s\n%s\n", filename, message);
-            return 2;
-        }
-        glAttachShader(prog, vs);
-        glDeleteShader(vs);
+        glAttachShader(prog, sha);
+        glDeleteShader(sha);
     }
 
     glLinkProgram(prog);
@@ -151,6 +139,8 @@ int main(int argc, char *argv[])
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+//    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+//    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwSetErrorCallback(errorCallback);
 
     { // window #1
@@ -210,18 +200,15 @@ void main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 
-    // framebuffer
-    GLuint fbo, tex1, tex2;
+    GLuint fbo;
     {
+        GLuint tex1, tex2;
         glGenTextures(1, &tex1);
         glBindTexture(GL_TEXTURE_2D, tex1);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_X, RES_Y);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
         glGenTextures(1, &tex2);
         glBindTexture(GL_TEXTURE_2D, tex2);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, RES_X, RES_Y);
-        glBindTexture(GL_TEXTURE_2D, 0);
 
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -230,65 +217,70 @@ void main() {
         glDrawBuffer(GL_COLOR_ATTACHMENT0);
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
 
-    {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, tex2);
+
+        float data[16] = { RES_X,RES_Y,0,0, 1,1,1,1, };
         GLuint ubo;
         glGenBuffers(1, &ubo);
         glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-        glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof data, data, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
 
         GLuint vao, vbo, ibo, cbo;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
         glGenBuffers(1, &vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glGenBuffers(1, &ibo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         glGenBuffers(1, &cbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     }
 
-    typedef int (plugFunction1)(void);
-    typedef void (plugFunction2)(float*, float);
-    plugFunction1 *mainGeometry;
-    plugFunction2 *mainAnimation;
-    const char *libraryFilename = "libmodule.so";
-    void *libraryHandle = NULL;
-    long lastModTime;
-    struct stat libStat;
-    int drawCount;
-
-    long prog1_lastModTime;
-    const char prog1_filename[] = "../base.frag";
-    const GLuint prog1 = glCreateProgram();
     const GLuint prog2 = glCreateProgram();
     assert(loadShader2(prog2, "../base.glsl") == 0);
+    int enableWireFrame = glGetUniformLocation(prog2, "enableWireFrame");
+
+    const GLuint prog1 = glCreateProgram();
+    const char *shaderFilename="../base.frag";
+    const char *libraryFilename="libmodule.so";
+    long lastModTime1, lastModTime2;
+    void *libraryHandle = NULL;
+    struct stat libStat;
+
+    typedef int (plugFunction1)(void);
+    typedef void (plugFunction2)(float);
+    plugFunction1 *mainGeometry;
+    plugFunction2 *mainAnimation;
+    int drawCount = 0;
 
     while (!glfwWindowShouldClose(window1))
     {
-        stat(prog1_filename, &libStat);
-        if (prog1_lastModTime != libStat.st_mtime) {
-            int err = loadShader1(prog1, prog1_filename);
-            if (err == 1) {assert(0); continue;}
-            prog1_lastModTime = libStat.st_mtime;
-
-            GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
-            glProgramUniform1i(prog1, iChannel1, 1);
+        int err;
+        err = stat(shaderFilename, &libStat);
+        if (err == 0 && lastModTime1 != libStat.st_mtime) {
+            err = loadShader1(prog1, shaderFilename);
+            if (err != 1) {
+                printf("INFO: reloading file %s\n", shaderFilename);
+                lastModTime1 = libStat.st_mtime;
+                GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
+                glProgramUniform1i(prog1, iChannel1, 1);
+            }
         }
 
-        stat(libraryFilename, &libStat);
-        if (libStat.st_mtime != lastModTime) {
+        err = stat(libraryFilename, &libStat);
+        if (err == 0 && lastModTime2 != libStat.st_mtime) {
             if (libraryHandle) {
                 assert(dlclose(libraryHandle) == 0);
             }
-            libraryHandle = dlopen(libraryFilename, RTLD_LAZY);
+            libraryHandle = dlopen(libraryFilename, RTLD_NOW);
             if (!libraryHandle) continue;
-
             printf("INFO: reloading file %s\n", libraryFilename);
-            lastModTime = libStat.st_mtime;
-
+            lastModTime2 = libStat.st_mtime;
             mainAnimation = (plugFunction2*)dlsym(libraryHandle, "mainAnimation");
             assert(mainAnimation);
             mainGeometry  = (plugFunction1*)dlsym(libraryHandle, "mainGeometry");
@@ -296,13 +288,7 @@ void main() {
             drawCount = mainGeometry();
         }
 
-        double xpos, ypos;
-        glfwGetCursorPos(window1, &xpos, &ypos);
-        const float t = glfwGetTime();
-        const float fov = 1.2;
-        float data[16] = { RES_X, RES_Y, float(xpos), float(ypos), t, 0, fov, 0, };
-        mainAnimation(data + 8, t);
-        glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(data), data);
+        mainAnimation(glfwGetTime());
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthFunc(GL_LESS);
@@ -314,15 +300,17 @@ void main() {
         glClearColor(0,0,0,1);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         glUseProgram(prog2);
+        glProgramUniform1f(prog2, enableWireFrame, 0);
         glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
 
-        if (data[7] > 0.5) {
-            glLineWidth(1.0);
+        if (0) {
             glPointSize(2.0);
+            glLineWidth(1.0);
             glDisable(GL_CULL_FACE);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+            glProgramUniform1f(prog2, enableWireFrame, 1);
             glMultiDrawElementsIndirect(GL_POINTS, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
@@ -332,10 +320,6 @@ void main() {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0,0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex1);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, tex2);
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 

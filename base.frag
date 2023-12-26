@@ -1,11 +1,11 @@
 #version 300 es
 precision mediump float;
 
+uniform sampler2D iChannel0, iChannel1;
 layout (std140) uniform INPUT {
-    vec4 iResolution;
-    float iTime, iFrame, fov, _pad1;
-    vec3 cameraPos, _pad2;
-    vec3 targetPos, _pad3;
+    vec2 iResolution; float iTime, iFrame;
+    vec3 cameraPos; float fov;
+    vec3 targetPos; float iDrawWire;
 };
 
 mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
@@ -23,13 +23,16 @@ float sdBox(vec3 pos, float b)
     return length(max(q, 0.0)) + min(0.0, max(max(q.x, q.y), q.z));
 }
 
+//============================================================//
+
 vec2 map(vec3 pos)
 {
-    float d = pos.y;
-    float d2 = sdBox(pos-vec3(0,1,-2), 1.) - 0.02;
+    float d = 1e10;//pos.y;
+    float d2;
+//    float d2 = sdBox(pos-vec3(0,1,-2), 1.) - 0.02;
 
-    d = min(d, d2);
-    d2 = length(pos) - .15;
+//    d = min(d, d2);
+    d2 = length(pos-vec3(0,1,0)) - .15;
     d = min(d, d2);
 
     return vec2(d, 1.);
@@ -46,7 +49,6 @@ vec3 calcNormal(vec3 pos)
 
 #define saturate(x) clamp(x, 0., 1.)
 out vec4 fragColor;
-uniform sampler2D iChannel0, iChannel1;
 void main()
 {
     vec3 ro = cameraPos, ta = targetPos;
@@ -57,20 +59,19 @@ void main()
     // compute rasterized polygon depth in world unit
     const float n = 0.1, f = 1000.0;
     const float p10 = (f+n)/(f-n), p11 = -2.0*f*n/(f-n); // from perspective matrix
-    vec3 nor = texture(iChannel1, gl_FragCoord.xy/iResolution.xy).rgb * 2. - 1.;
+    vec3 nor = texture(iChannel1, gl_FragCoord.xy/iResolution.xy).rgb *2.-1.;
+    nor = normalize(nor);
     float d = texture(iChannel0, gl_FragCoord.xy/iResolution.xy).r;
         d = p11/(d*2.-1. - p10) / dot(rd, normalize(ta-ro));
 
     // ray marching
-    float t, i;
-    vec2 h;
+    float t, i, m;
     for (t=0.,i=0.; i<50.; i++) {
-        h = map(ro + rd*t);
+        vec2 h = map(ro + rd*t);
         t += h.x;
+        m = h.y;
         if (h.x < 0.0001 || t > 100.) break;
     }
-
-    float m = h.y;
 
     vec3 col = vec3(0);
 
@@ -87,13 +88,13 @@ void main()
             vec3 pos = ro + rd*t;
             nor = calcNormal(pos);
         } else {
-            mate = vec3(0.5,0.6,0.7);
+            mate = vec3(0.7,0.7,0.5);
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));
         float sun_dif = saturate(dot(nor, sun_dir))*.9+.1;
-        float sky_dif = saturate(dot(nor, vec3(0,1,0)))*.3;
-        col += vec3(0.9,0.9,0.5)*sun_dif*mate*1.3;
+        float sky_dif = saturate(dot(nor, vec3(0,1,0)))*.15;
+        col += vec3(0.9,0.9,0.5)*sun_dif*mate;
         col += vec3(0.5,0.6,0.9)*sky_dif;
     } else {
         col += vec3(0.5,0.6,0.9)*1.2 - rd.y;
