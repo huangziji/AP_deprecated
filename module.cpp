@@ -1,3 +1,4 @@
+#include "Transvoxel.cpp"
 #include <stdio.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
@@ -5,27 +6,63 @@
 using boost::container::vector;
 using namespace glm;
 
-static vector<float> &operator<<(vector<float> &a, float b)
+int loadShader6(GLuint prog, const char *filename)
 {
-    a.push_back(b);
-    return a;
+    FILE *f = fopen(filename, "r");
+    if (!f) {
+        fprintf(stderr, "ERROR: file %s not found.", filename);
+        return 1;
+    }
+    fseek(f, 0, SEEK_END);
+    long length = ftell(f);
+    rewind(f);
+    char source[length+1]; source[length] = 0; // set null terminator
+    fread(source, length, 1, f);
+    fclose(f);
+
+    { // detach shaders
+        GLsizei numShaders;
+        GLuint shaders[5];
+        glGetAttachedShaders(prog, 5, &numShaders, shaders);
+        for (int i=0; i<numShaders; i++) {
+            glDetachShader(prog, shaders[i]);
+        }
+    }
+
+    GLuint cs = glCreateShader(GL_COMPUTE_SHADER);
+    const char *string[] = { source };
+    glShaderSource(cs, 1, string, NULL);
+    glCompileShader(cs);
+    int success;
+    glGetShaderiv(cs, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        int length; glGetShaderiv(cs, GL_INFO_LOG_LENGTH, &length);
+        char message[length]; glGetShaderInfoLog(cs, length, &length, message);
+        fprintf(stderr, "ERROR: fail to compile compute shader. file \n%s\n", message);
+        return 2;
+    }
+    glAttachShader(prog, cs);
+    glDeleteShader(cs);
+    glLinkProgram(prog);
+    glValidateProgram(prog);
+    return 0;
 }
 
-static vector<float> &operator,(vector<float> &a, float b)
+float sdTorus( vec3 p, vec2 t )
 {
-    return a << b;
+  vec2 q = vec2(length(vec2(p.x,p.z))-t.x,p.y);
+  return length(q)-t.y;
 }
 
-static vector<GLushort> &operator<<(vector<GLushort> &a, GLushort b)
+float map(vec3 pos)
 {
-    a.push_back(b);
-    return a;
+    float d1 = length(pos-vec3(0,1,0)) - .5;
+    return d1;
+    float d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
+    return min(d1, d2);
 }
 
-static vector<GLushort> &operator,(vector<GLushort> &a, GLushort b)
-{
-    return a << b;
-}
+typedef struct { vec3 pos, nor; }Vertex;
 
 typedef struct {
     GLuint count;
@@ -35,182 +72,185 @@ typedef struct {
     GLuint baseInstance;
 }DrawElementsIndirectCommand;
 
-typedef struct {
-    vec3 position, normal;
-}Vertex;
+vector<Vertex> &operator<<(vector<Vertex> &a, vec3 const& b) { a.push_back({b,}); return a; };
+vector<Vertex> &operator,(vector<Vertex> &a, vec3 const& b) { return a << b; };
+vector<Vertex> &operator<<(vector<Vertex> &a, Vertex const& b) { a.push_back(b); return a; };
+vector<Vertex> &operator,(vector<Vertex> &a, Vertex const& b) { return a << b; };
+vector<GLushort> &operator<<(vector<GLushort> &a, GLushort b) { a.push_back(b); return a; };
+vector<GLushort> &operator,(vector<GLushort> &a, GLushort const& b) { return a << b; };
 
-typedef vec3 Instance;
+extern "C" int mainGeometry()
+{
+    static GLuint prog3, tex, frame = 0;
+    if (!frame++) {
+        prog3 = glCreateProgram();
 
-// c++ class isn't working with hot reloading, so I use C style OO instead
-typedef struct {
+        const int Size = 32;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_3D, tex);
+        glTexStorage3D(GL_TEXTURE_3D, 1, GL_R8UI, Size,Size,Size);
+        glBindTexture(GL_TEXTURE_3D, 0);
+    }
+
+    {
+        assert(loadShader6(prog3, "../sdf.glsl") == 0);
+
+        int data[128] = { 1 };
+        GLuint ssbo;
+        glGenBuffers(1, &ssbo);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof data, data, GL_STATIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+        glUseProgram(prog3);
+        glDispatchCompute(2,2,2);
+        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof data, data);
+    }
+
     vector<Vertex> V;
     vector<GLushort> I;
-    vector<Instance> X;
-    vector<DrawElementsIndirectCommand> cmd;
-} PolygonContext;
 
-void pctx_Cylinder(PolygonContext &self, int N, float h, float s)
-{
-    auto &V = self.V;
-    auto &I = self.I;
-    auto &X = self.X;
-    auto &cmd = self.cmd;
-    int baseVertex = V.size();
-    uint firstIndex = I.size();
-    uint baseInstance = X.size();
-    V.push_back({ vec3(0, h*s,0), vec3(0, 1,0) });
-    V.push_back({ vec3(0,-h*s,0), vec3(0,-1,0) });
-    for (int i=0; i<=N; i++) {
-        float  t = 2*M_PI*i/N;
-        vec3 n = vec3(sin(t),0,cos(t));
-        vec3 a = (n + vec3(0, h,0)) * s;
-        vec3 b = (n + vec3(0,-h,0)) * s;
-        V.push_back({ a, n });
-        V.push_back({ b, n });
-        V.push_back({ a, vec3(0, 1,0) });
-        V.push_back({ b, vec3(0,-1,0) });
-        if (i != N) {
-            int M = 4, idx = i*M + 2;
-            I << idx,idx+1,idx+M, idx+M,idx+1,idx+1+M;
-            I << 0,  idx+2,idx+M+2, 1, idx+M+3, idx+3;
-        }
-    }
-    uint count = I.size()-firstIndex;
-    cmd.push_back({ count, 0, firstIndex, baseVertex, baseInstance });
-}
-
-void pctx_CubeMap(PolygonContext &self, uint N, Vertex fun(vec3))
-{
-    auto &V = self.V;
-    auto &I = self.I;
-    auto &X = self.X;
-    auto &cmd = self.cmd;
-    int baseVertex = V.size();
-    uint firstIndex = I.size();
-    uint baseInstance = X.size();
-    static const mat3x3 ToCubeMapSpace[] = {
-        { 1,0,0, 0,1,0, 0,0,1, }, // forward
-        { -1,0,0, 0,1,0, 0,0,-1, }, // back
-        { 0,0,1, 0,1,0, -1,0,0, }, // right
-        { 0,0,-1, 0,1,0, 1,0,0, }, // left
-        { 1,0,0, 0,0,1, 0,-1,0, }, // top
-        { 1,0,0, 0,0,-1, 0,1,0, }, // bottom
+    static const vec3 vertmap[] = {
+            {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
+            {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1},
     };
-    for (int f=0; f<6; f++)
-        for (int t=0; t<N; t++)
-            for (int s=0; s<N; s++)
+    static const char edgevmap[][2] = {
+            0,1, 2,3, 4,5, 6,7,
+            0,2, 1,3, 4,6, 5,7,
+            0,4, 1,5, 2,6, 3,7,
+    };
+
     {
-        vec3 uv = vec3(vec2(s,t)/(N-1.0f)*2.0f-1.0f, 1) * ToCubeMapSpace[f];
-        V.push_back(fun(uv));
-        if (s != N-1 && t != N-1) {
-            int idx = f*N*N + t*N + s;
-            I << idx,idx+1,idx+N,idx+N,idx+1,idx+1+N;
+    const int Res = 1<<4;
+    const vec3 offs = vec3(0,1,0) - .8f;
+    const float sca = .8*2/Res;
+
+    const int Size = Res+1;
+    vector<GLushort> indexMap(Size*Size*Size);
+
+    int x,y,z;
+    for (z=0; z<Res; z++) {
+        for (y=0; y<Res; y++) {
+            for (x=0; x<Res; x++) {
+                float d[8]; // density
+                int mask = 0;
+                vec3 p = {x,y,z};
+                for (int i=0; i<8; i++) {
+                    d[i] = map( (p+vertmap[i]-.25f)*sca + offs );
+                    mask |= (d[i] > 0) << i;
+                }
+
+                if (mask != 0 && mask != 0xff) {
+#if 0
+                    int idx = V.size();
+                    RegularCellData c = regularCellData[regularCellClass[mask]];
+                    for (int i=0; i<c.GetVertexCount(); i++) {
+                        char  a = (regularVertexData[mask][i] >> 0) & 0xf;
+                        char  b = (regularVertexData[mask][i] >> 4) & 0xf;
+                        float t = d[a] / (d[a] - d[b]);
+                        assert(0 <= t && t <= 1);
+                        V << offs + sca*(p + mix(vertmap[a], vertmap[b], t));
+                    }
+                    for (int i=0; i<c.GetTriangleCount(); i++) {
+                        I <<
+                            c.vertexIndex[i * 3 + 0] + idx,
+                            c.vertexIndex[i * 3 + 2] + idx,
+                            c.vertexIndex[i * 3 + 1] + idx;
+                    }
+#else
+                    int n_edges = 0;
+                    vec3 centroid = vec3(0);
+                    for (int i=0; i<12; i++) {
+                        char a = edgevmap[i][0];
+                        char b = edgevmap[i][1];
+                        int m1 = (mask >> a) & 1;
+                        int m2 = (mask >> b) & 1;
+                        if (m1 ^ m2) {
+                            float t = d[a] / (d[a] - d[b]);
+                            assert(0 <= t && t <= 1);
+                            centroid += mix(vertmap[a], vertmap[b], t);
+                            n_edges += 1;
+                        }
+                    }
+                    centroid /= n_edges;
+
+                    int idx = x + y*Size + z*Size*Size;
+                    indexMap[idx] = GLushort(V.size());
+                    V << offs + sca*(p+centroid);
+
+                    if (x*y*z == 0)
+                        continue;
+
+                    const int axismap[] = { 1, Size, Size*Size, 1, Size }; // wrap
+                    for (int i=0; i<3; i++) { // 3 basis axes
+                        const int lvl = 1 << i;
+                        const int m1 = mask & 1;
+                        const int m2 = (mask >> lvl) & 1;
+                        if (m1 ^ m2) { // compare to current cell with adjacent cell from each axes
+                            // flip face depends on the sign of density from lower end
+                            int i1 = idx - axismap[i+1+m1],
+                                i2 = idx - axismap[i+2-m1],
+                                i3 = i1 + i2 - idx;
+                            I <<
+                                indexMap[idx], indexMap[i1], indexMap[i2],
+                                indexMap[i2],  indexMap[i1], indexMap[i3];
+                        }
+                    }
+#endif
+                }
+            }
         }
     }
-    uint count = I.size()-firstIndex;
-    cmd.push_back({ count, 0, firstIndex, baseVertex, baseInstance });
-}
 
-void pctx_Normal(PolygonContext &self)
-{
-    auto      & V   = self.V;
-    auto const& I   = self.I;
-    auto const& cmd = self.cmd;
-    uint firstIndex = cmd.back().firstIndex;
-    int baseVertex = cmd.back().baseVertex;
-    for (int i=baseVertex; i<V.size(); i++) {
-        V[i].normal = vec3(0);
     }
-    for (int i=firstIndex; i<I.size(); i+=3) {
-        int i0 = I[i+0],
-            i1 = I[i+1],
-            i2 = I[i+2];
-        vec3 p0 = V[baseVertex+i0].position;
-        vec3 p1 = V[baseVertex+i1].position;
-        vec3 p2 = V[baseVertex+i2].position;
-        vec3 nor = cross(p1-p0, p2-p1);
-        V[baseVertex+i0].normal += nor;
-        V[baseVertex+i1].normal += nor;
-        V[baseVertex+i2].normal += nor;
-    }
-    for (int i=baseVertex; i<V.size(); i++) {
-        V[i].normal = normalize(V[i].normal);
-    }
-}
 
-int pctx_End(PolygonContext &self)
-{
-    auto &V = self.V;
-    auto &I = self.I;
-    auto &X = self.X;
-    auto &cmd = self.cmd;
-    size_t offset = V.size() * sizeof V[0];
-    size_t size = X.size() * sizeof X[0];
+    // compute normals
+    {
+            uint firstIndex = 0;//cmd.back().firstIndex;
+            int baseVertex = 0;//cmd.back().baseVertex;
+            for (int i=baseVertex; i<V.size(); i++) {
+                V[i].nor = vec3(0);
+            }
+            for (int i=firstIndex; i<I.size(); i+=3) {
+                int i0 = I[i+0],
+                    i1 = I[i+1],
+                    i2 = I[i+2];
+                vec3 p0 = V[baseVertex+i0].pos,
+                     p1 = V[baseVertex+i1].pos,
+                     p2 = V[baseVertex+i2].pos;
+                vec3 nor = cross(p1-p0, p2-p1);
+                V[baseVertex+i0].nor += nor;
+                V[baseVertex+i1].nor += nor;
+                V[baseVertex+i2].nor += nor;
+            }
+            for (int i=baseVertex; i<V.size(); i++) {
+                V[i].nor= normalize(V[i].nor);
+            }
+    }
+
+    // TODO: polygonize in octree
+
+    vector<DrawElementsIndirectCommand> C = { {GLuint(I.size()),1,0,0,0} };
+
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 24, 0);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 24, (void*)12);
-    glEnableVertexAttribArray(2);
-    glVertexAttribDivisor(2, 1);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 12, (void*)offset);
-    glBufferData(GL_ARRAY_BUFFER, offset+size, V.data(), GL_STATIC_DRAW);
-    glBufferSubData(GL_ARRAY_BUFFER, offset, size, X.data());
+    glBufferData(GL_ARRAY_BUFFER, V.size()*sizeof V[0], V.data(), GL_STATIC_DRAW);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, I.size()*sizeof I[0], I.data(), GL_STATIC_DRAW);
-    glBufferData(GL_DRAW_INDIRECT_BUFFER, cmd.size()*sizeof cmd[0], cmd.data(), GL_STATIC_DRAW);
-    return cmd.size();
+    glBufferData(GL_DRAW_INDIRECT_BUFFER, C.size()*sizeof C[0], C.data(), GL_STATIC_DRAW);
+
+    return C.size();
 }
 
-PolygonContext &operator<<(PolygonContext &ctx, vec3 pos)
+extern "C" int mainAnimation(float t)
 {
-    ctx.X.push_back(pos);
-    ctx.cmd.back().instanceCount++;
-    return ctx;
-};
-
-PolygonContext &operator,(PolygonContext &ctx, vec3 pos)
-{
-    return ctx << pos;
-};
-
-Vertex CubeMap2Cube(vec3 uv)
-{
-    return {uv*.1f,uv};
-}
-
-Vertex CubeMap2Sphere(vec3 uv)
-{
-    vec3 pos = normalize(uv);
-    return {pos*.15f,pos};
-}
-
-Vertex CubeMap2Capsule(vec3 uv)
-{
-    float h = 4.;
-    vec3 nor = normalize(uv);
-    vec3 pos = sign(uv.y)*vec3(0,h,0) + nor;
-    return {pos*.1f, nor};
-}
-
-extern "C" int mainGeometry()
-{
-    PolygonContext ctx;
-    pctx_CubeMap(ctx, 2, CubeMap2Cube);
-    pctx_Normal(ctx);
-    ctx << vec3(0,0,0);
-    pctx_CubeMap(ctx, 10, CubeMap2Sphere);
-    ctx << vec3(1,0,0), vec3(0,0,1), vec3(0,-1,0);
-    pctx_CubeMap(ctx, 8, CubeMap2Capsule);
-    ctx << vec3(-1,0,0);
-    pctx_Cylinder(ctx, 10, 4, .1);
-    ctx << vec3(0,0,-1);
-    return pctx_End(ctx);
-}
-
-extern "C" void mainAnimation(float t)
-{
-//    t = 1.;
-    vec3 ta = vec3(0, sin(t), 0)*0.f;
-    vec3 ro = ta + vec3(sin(t),.4,cos(t))*2.f;
+    //t = M_PI;
+    vec3 ta = vec3(0,1.3,0);
+    vec3 ro = ta + vec3(sin(t),.3,cos(t))*2.5f;
     mat2x4 data = mat2x4(vec4(ro, 1.2), vec4(ta, 0));
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof(data), &data);
+    return 0;
 }

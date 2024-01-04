@@ -12,8 +12,8 @@ find_package(Boost REQUIRED)
 add_definitions(-DGLFW_INCLUDE_NONE)
 file(COPY base.frag base.glsl DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
-add_executable(${PROJECT_NAME} main.cpp base.frag base.glsl)
-target_link_libraries(${PROJECT_NAME} glfw glad openal)
+add_executable(${PROJECT_NAME} main.cpp base.frag base.glsl sdf.glsl)
+target_link_libraries(${PROJECT_NAME} glfw glad)
 target_link_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(module SHARED module.cpp)

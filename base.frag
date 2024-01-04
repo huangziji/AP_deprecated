@@ -1,7 +1,9 @@
-#version 300 es
+ #version 300 es
 precision mediump float;
+precision mediump sampler3D;
 
 uniform sampler2D iChannel0, iChannel1;
+uniform sampler3D iChannel2;
 layout (std140) uniform INPUT {
     vec2 iResolution; float iTime, iFrame;
     vec3 cameraPos; float fov;
@@ -23,17 +25,37 @@ float sdBox(vec3 pos, float b)
     return length(max(q, 0.0)) + min(0.0, max(max(q.x, q.y), q.z));
 }
 
+vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
+{
+    vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
+    vec3 n = m*ro;   // can precompute if traversing a set of aligned boxes
+    vec3 k = abs(m)*boxSize;
+    vec3 t1 = -n - k;
+    vec3 t2 = -n + k;
+    float tN = max( max( t1.x, t1.y ), t1.z );
+    float tF = min( min( t2.x, t2.y ), t2.z );
+    if( tN>tF || tF<0.0) return vec2(-1.0); // no intersection
+    return vec2( tN, tF );
+}
+
 //============================================================//
+
+float sdTorus( vec3 p, vec2 t )
+{
+  vec2 q = vec2(length(p.xz)-t.x,p.y);
+  return length(q)-t.y;
+}
 
 vec2 map(vec3 pos)
 {
-    float d = 1e10;//pos.y;
+    float d = pos.y;
     float d2;
-//    float d2 = sdBox(pos-vec3(0,1,-2), 1.) - 0.02;
+    //d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
 
-//    d = min(d, d2);
-    d2 = length(pos-vec3(0,1,0)) - .15;
-    d = min(d, d2);
+    //d = min(d, d2);
+    //d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
+    //d2 = length(pos-vec3(0,.15,0)) - .15;
+    //d = min(d, d2);
 
     return vec2(d, 1.);
 }
@@ -75,6 +97,16 @@ void main()
 
     vec3 col = vec3(0);
 
+#if 0 // ray tracing
+    {
+        vec2 tt = boxIntersection(ro, rd, vec3(.5));
+        if (tt.y > tt.x) {
+            ivec3 size = textureSize(iChannel2, 0);
+            col += .1;
+        }
+    }
+#endif
+
     // compare rasterized objects to raymarching objects
     if (t < 100. || d < 100.) {
         vec3 mate;
@@ -87,8 +119,8 @@ void main()
         if (t < d) { // raymarching objects
             vec3 pos = ro + rd*t;
             nor = calcNormal(pos);
-        } else {
-            mate = vec3(0.7,0.7,0.5);
+        } else { // polygons
+            mate = vec3(0.5,0.6,0.7);
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));

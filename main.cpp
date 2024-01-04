@@ -156,50 +156,6 @@ int main(int argc, char *argv[])
         gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     }
 
-    if (0)
-    { // texture octree
-    const char source[] = R"(#version 310 es
-layout (local_size_x=8, local_size_y=8, local_size_z=8) in;
-layout (std430, binding = 0) buffer INPUT {
-    int outData[];
-};
-void main() {
-    ivec3 p = ivec3(gl_GlobalInvocationID.xyz);
-    outData[p.x + p.y + p.z] = p.x + p.y + p.z;
-}
-)";
-    const GLuint prog3 = glCreateProgram();
-    GLuint cs = glCreateShader(GL_COMPUTE_SHADER);
-    const char *string[] = { source };
-    glShaderSource(cs, 1, string, NULL);
-    glCompileShader(cs);
-    int success;
-    glGetShaderiv(cs, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        int length; glGetShaderiv(cs, GL_INFO_LOG_LENGTH, &length);
-        char message[length]; glGetShaderInfoLog(cs, length, &length, message);
-        fprintf(stderr, "ERROR: fail to compile compute shader. file \n%s\n", message);
-    }
-    glAttachShader(prog3, cs);
-    glDeleteShader(cs);
-    glLinkProgram(prog3);
-    glValidateProgram(prog3);
-
-    GLuint ssbo;
-    glGenBuffers(1, &ssbo);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 1024, NULL, GL_STATIC_COPY);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-
-    glUseProgram(prog3);
-    glDispatchCompute(1,1,1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-    char data[1024];
-    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(data), data);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-    }
-
     GLuint fbo;
     {
         GLuint tex1, tex2;
@@ -243,7 +199,7 @@ void main() {
 
     const GLuint prog2 = glCreateProgram();
     assert(loadShader2(prog2, "../base.glsl") == 0);
-    int enableWireFrame = glGetUniformLocation(prog2, "enableWireFrame");
+    GLint enableWireFrame = glGetUniformLocation(prog2, "enableWireFrame");
 
     const GLuint prog1 = glCreateProgram();
     const char *shaderFilename="../base.frag";
@@ -253,10 +209,11 @@ void main() {
     struct stat libStat;
 
     typedef int (plugFunction1)(void);
-    typedef void (plugFunction2)(float);
+    typedef int (plugFunction2)(float);
     plugFunction1 *mainGeometry;
     plugFunction2 *mainAnimation;
     int drawCount = 0;
+    int wireFrameMode = 0;
 
     while (!glfwWindowShouldClose(window1))
     {
@@ -269,6 +226,8 @@ void main() {
                 lastModTime1 = libStat.st_mtime;
                 GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
                 glProgramUniform1i(prog1, iChannel1, 1);
+                GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
+                glProgramUniform1i(prog1, iChannel2, 2);
             }
         }
 
@@ -288,7 +247,7 @@ void main() {
             drawCount = mainGeometry();
         }
 
-        mainAnimation(glfwGetTime());
+        wireFrameMode = mainAnimation(glfwGetTime());
 
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthFunc(GL_LESS);
@@ -303,7 +262,7 @@ void main() {
         glProgramUniform1f(prog2, enableWireFrame, 0);
         glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, drawCount, 0);
 
-        if (0) {
+        if (wireFrameMode) {
             glPointSize(2.0);
             glLineWidth(1.0);
             glDisable(GL_CULL_FACE);

@@ -38,8 +38,8 @@ layout (location = 2) in vec3 a_Translation;
 void main()
 {
     v_Normal = a_Normal;
-    v_Position = a_Vertex.xyz + a_Translation;//vec3(-3+a_DrawID*3,0,0);
-    v_Position += a_Normal*enableWireFrame*0.01;
+    v_Position = a_Vertex.xyz + a_Translation;
+    v_Position += a_Normal*enableWireFrame*0.001;
 
     float ar = iResolution.x/iResolution.y;
     mat3 ca = setCamera(cameraPos, targetPos, 0.0);
@@ -53,6 +53,7 @@ void main(void)
     if (enableWireFrame > 0.5) {
         fragColor = vec4(1.0);
     } else {
+//        vec3 nor = normalize(cross(dFdx(v_Position), dFdy(v_Position)));
         vec3 nor = normalize(v_Normal);
         fragColor = vec4(nor*.5+.5, 1.0);
     }
