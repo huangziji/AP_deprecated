@@ -97,9 +97,9 @@ void main()
 
     vec3 col = vec3(0);
 
-#if 0 // ray tracing
+#if 1 // ray tracing
     {
-        vec2 tt = boxIntersection(ro, rd, vec3(.5));
+        vec2 tt = boxIntersection(ro-vec3(0,1,0), rd, vec3(.8));
         if (tt.y > tt.x) {
             ivec3 size = textureSize(iChannel2, 0);
             col += .1;

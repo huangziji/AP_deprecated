@@ -1,10 +1,116 @@
-#include "Transvoxel.cpp"
 #include <stdio.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <boost/container/vector.hpp>
 using boost::container::vector;
 using namespace glm;
+template<typename T> vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; };
+template<typename T> vector<T> &operator,(vector<T> &a, T const& b) { return a << b; };
+
+typedef struct {
+    vec3 min, max;
+}AABB;
+
+typedef struct {
+    AABB box;
+    int objectIndex;
+    int parentIndex;
+    int child1;
+    int child2;
+    bool isLeaf;
+}Node;
+
+typedef struct {
+    Node* nodes;
+    int nodeCount;
+    int rootIndex;
+}Tree;
+
+AABB Union(AABB A, AABB B)
+{
+    return (AABB){ min(A.min, B.min), max(A.max, B.max), };
+}
+
+float Area(AABB A)
+{
+    vec3 d = A.max - A.min;
+    return 2.0f * (d.x * d.y + d.y * d.z + d.z * d.x);
+}
+
+int AllocateInternalNode(Tree tree)
+{
+    return 0;
+}
+
+int AllocateLeafNode(Tree tree, int objectIndex, AABB box)
+{
+    return 0;
+}
+
+int PickBest(int bestSibling, int i)
+{
+    return 0;
+}
+
+void InsertLeaf(Tree tree, int objectIndex, AABB box)
+{
+    const int nullIndex = -1;
+
+    int leafIndex = AllocateLeafNode(tree, objectIndex, box);
+    if (tree.nodeCount == 0)
+    {
+        tree.rootIndex = leafIndex;
+        return;
+    }
+
+    // Stage 1: find the best sibling for the new leaf
+    int sibling = 0;
+    for (int i = 0; i < tree.nodeCount; ++i)
+    {
+        sibling = PickBest(sibling, i);
+    }
+
+    // Stage 2: create a new parent
+    int oldParent = tree.nodes[sibling].parentIndex;
+    int newParent = AllocateInternalNode(tree);
+    tree.nodes[newParent].parentIndex = oldParent;
+    tree.nodes[newParent].box = Union(box, tree.nodes[sibling].box);
+    if (oldParent != nullIndex)
+    {
+        // The sibling was not the root
+        if (tree.nodes[oldParent].child1 == sibling)
+        {
+            tree.nodes[oldParent].child1 = newParent;
+        }
+        else
+        {
+            tree.nodes[oldParent].child2 = newParent;
+        }
+        tree.nodes[newParent].child1 = sibling;
+        tree.nodes[newParent].child2 = leafIndex;
+        tree.nodes[sibling].parentIndex = newParent;
+        tree.nodes[leafIndex].parentIndex = newParent;
+    }
+    else
+    {
+        // The sibling was the root
+        tree.nodes[newParent].child1 = sibling;
+        tree.nodes[newParent].child2 = leafIndex;
+        tree.nodes[sibling].parentIndex = newParent;
+        tree.nodes[leafIndex].parentIndex = newParent;
+        tree.rootIndex = newParent;
+    }
+
+    // Stage 3: walk back up the tree refitting AABBs
+    int index = tree.nodes[leafIndex].parentIndex;
+    while (index != nullIndex)
+    {
+        int child1 = tree.nodes[index].child1;
+        int child2 = tree.nodes[index].child2;
+        tree.nodes[index].box = Union(tree.nodes[child1].box, tree.nodes[child2].box);
+        index = tree.nodes[index].parentIndex;
+    }
+}
 
 int loadShader6(GLuint prog, const char *filename)
 {
@@ -48,6 +154,12 @@ int loadShader6(GLuint prog, const char *filename)
     return 0;
 }
 
+float sdBox( vec3 p, float b )
+{
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.f));
+}
+
 float sdTorus( vec3 p, vec2 t )
 {
   vec2 q = vec2(length(vec2(p.x,p.z))-t.x,p.y);
@@ -56,10 +168,12 @@ float sdTorus( vec3 p, vec2 t )
 
 float map(vec3 pos)
 {
-    float d1 = length(pos-vec3(0,1,0)) - .5;
-    return d1;
-    float d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
-    return min(d1, d2);
+    float d1, d2;
+    //d1 = sdBox(pos-vec3(0,1,0), .5) - .02;
+    //d2 = length(pos-vec3(0,1,0)) - .5;
+    //d1 = min(d1, d2);
+    d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
+    return d2;//max(d1, d2);
 }
 
 typedef struct { vec3 pos, nor; }Vertex;
@@ -72,12 +186,78 @@ typedef struct {
     GLuint baseInstance;
 }DrawElementsIndirectCommand;
 
-vector<Vertex> &operator<<(vector<Vertex> &a, vec3 const& b) { a.push_back({b,}); return a; };
-vector<Vertex> &operator,(vector<Vertex> &a, vec3 const& b) { return a << b; };
-vector<Vertex> &operator<<(vector<Vertex> &a, Vertex const& b) { a.push_back(b); return a; };
-vector<Vertex> &operator,(vector<Vertex> &a, Vertex const& b) { return a << b; };
-vector<GLushort> &operator<<(vector<GLushort> &a, GLushort b) { a.push_back(b); return a; };
-vector<GLushort> &operator,(vector<GLushort> &a, GLushort const& b) { return a << b; };
+static vector<Vertex> V;
+static vector<GLushort> I;
+
+int sdf2poly(uvec3 id, uint Res)
+{
+    const int Size = Res+1;
+    static vector<GLushort> indexMap(Size*Size*Size);
+    const float sca = .8*2/(Res);
+    const vec3 offs = vec3(0,1,0) - .8f;
+
+    static const vec3 vertmap[] = {
+            {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
+            {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1},
+    };
+
+    static const uvec2 edgevmap[] = {
+            {0,1}, {2,3}, {4,5}, {6,7},
+            {0,2}, {1,3}, {4,6}, {5,7},
+            {0,4}, {1,5}, {2,6}, {3,7},
+    };
+
+    float d[8]; // density
+    int mask = 0;
+    for (int i=0; i<8; i++) {
+        d[i] = map( (vec3(id)+vertmap[i])*sca + offs );
+        mask |= (d[i] > 0) << i;
+    }
+
+    if (mask == 0 || mask == 0xff)
+        return 0;
+
+    int n_edges = 0;
+    vec3 ce = vec3(0);
+    for (int i=0; i<12; i++) {
+        int  a = edgevmap[i][0];
+        int  b = edgevmap[i][1];
+        int m1 = (mask >> a) & 1;
+        int m2 = (mask >> b) & 1;
+        if (m1 ^ m2) {
+            float t = d[a] / (d[a] - d[b]);
+            assert(0 <= t && t <= 1);
+            ce += mix(vertmap[a], vertmap[b], t);
+            n_edges += 1;
+        }
+    }
+    ce /= n_edges;
+
+    int i0 = id.x + id.y*Size + id.z*Size*Size;
+    indexMap[i0] = GLushort(V.size());
+    V << Vertex{ offs + sca*(vec3(id)+ce), };
+
+    if (id.x*id.y*id.z == 0)
+        return 1;
+
+    const int axismap[] = { 1, Size, Size*Size, 1, Size }; // wrap
+    for (int i=0; i<3; i++) { // 3 basis axes
+        const int lvl = 1 << i;
+        const int m1 = mask & 1;
+        const int m2 = (mask >> lvl) & 1;
+        if (m1 ^ m2) { // compare to current cell with adjacent cell from each axes
+            // flip face depends on the sign of density from lower end
+            int i1 = i0 - axismap[i+1+m1],
+                i2 = i0 - axismap[i+2-m1],
+                i3 = i1 + i2 - i0;
+            I <<
+                indexMap[i0], indexMap[i1], indexMap[i2],
+                indexMap[i2], indexMap[i1], indexMap[i3];
+        }
+    }
+
+    return 2;
+}
 
 extern "C" int mainGeometry()
 {
@@ -109,102 +289,14 @@ extern "C" int mainGeometry()
         glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof data, data);
     }
 
-    vector<Vertex> V;
-    vector<GLushort> I;
+    V.clear();
+    I.clear();
 
-    static const vec3 vertmap[] = {
-            {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
-            {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1},
-    };
-    static const char edgevmap[][2] = {
-            0,1, 2,3, 4,5, 6,7,
-            0,2, 1,3, 4,6, 5,7,
-            0,4, 1,5, 2,6, 3,7,
-    };
-
-    {
-    const int Res = 1<<4;
-    const vec3 offs = vec3(0,1,0) - .8f;
-    const float sca = .8*2/Res;
-
-    const int Size = Res+1;
-    vector<GLushort> indexMap(Size*Size*Size);
-
-    int x,y,z;
-    for (z=0; z<Res; z++) {
-        for (y=0; y<Res; y++) {
-            for (x=0; x<Res; x++) {
-                float d[8]; // density
-                int mask = 0;
-                vec3 p = {x,y,z};
-                for (int i=0; i<8; i++) {
-                    d[i] = map( (p+vertmap[i]-.25f)*sca + offs );
-                    mask |= (d[i] > 0) << i;
-                }
-
-                if (mask != 0 && mask != 0xff) {
-#if 0
-                    int idx = V.size();
-                    RegularCellData c = regularCellData[regularCellClass[mask]];
-                    for (int i=0; i<c.GetVertexCount(); i++) {
-                        char  a = (regularVertexData[mask][i] >> 0) & 0xf;
-                        char  b = (regularVertexData[mask][i] >> 4) & 0xf;
-                        float t = d[a] / (d[a] - d[b]);
-                        assert(0 <= t && t <= 1);
-                        V << offs + sca*(p + mix(vertmap[a], vertmap[b], t));
-                    }
-                    for (int i=0; i<c.GetTriangleCount(); i++) {
-                        I <<
-                            c.vertexIndex[i * 3 + 0] + idx,
-                            c.vertexIndex[i * 3 + 2] + idx,
-                            c.vertexIndex[i * 3 + 1] + idx;
-                    }
-#else
-                    int n_edges = 0;
-                    vec3 centroid = vec3(0);
-                    for (int i=0; i<12; i++) {
-                        char a = edgevmap[i][0];
-                        char b = edgevmap[i][1];
-                        int m1 = (mask >> a) & 1;
-                        int m2 = (mask >> b) & 1;
-                        if (m1 ^ m2) {
-                            float t = d[a] / (d[a] - d[b]);
-                            assert(0 <= t && t <= 1);
-                            centroid += mix(vertmap[a], vertmap[b], t);
-                            n_edges += 1;
-                        }
-                    }
-                    centroid /= n_edges;
-
-                    int idx = x + y*Size + z*Size*Size;
-                    indexMap[idx] = GLushort(V.size());
-                    V << offs + sca*(p+centroid);
-
-                    if (x*y*z == 0)
-                        continue;
-
-                    const int axismap[] = { 1, Size, Size*Size, 1, Size }; // wrap
-                    for (int i=0; i<3; i++) { // 3 basis axes
-                        const int lvl = 1 << i;
-                        const int m1 = mask & 1;
-                        const int m2 = (mask >> lvl) & 1;
-                        if (m1 ^ m2) { // compare to current cell with adjacent cell from each axes
-                            // flip face depends on the sign of density from lower end
-                            int i1 = idx - axismap[i+1+m1],
-                                i2 = idx - axismap[i+2-m1],
-                                i3 = i1 + i2 - idx;
-                            I <<
-                                indexMap[idx], indexMap[i1], indexMap[i2],
-                                indexMap[i2],  indexMap[i1], indexMap[i3];
-                        }
-                    }
-#endif
-                }
-            }
-        }
-    }
-
-    }
+    const int Res = 1<<5;
+    for (int z=0; z<Res; z++)
+        for (int y=0; y<Res; y++)
+            for (int x=0; x<Res; x++)
+                sdf2poly({x,y,z}, Res);
 
     // compute normals
     {
@@ -226,7 +318,7 @@ extern "C" int mainGeometry()
                 V[baseVertex+i2].nor += nor;
             }
             for (int i=baseVertex; i<V.size(); i++) {
-                V[i].nor= normalize(V[i].nor);
+                V[i].nor = normalize(V[i].nor);
             }
     }
 
