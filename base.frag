@@ -1,28 +1,16 @@
- #version 300 es
+#version 300 es
 precision mediump float;
-precision mediump sampler3D;
-
-uniform sampler2D iChannel0, iChannel1;
-uniform sampler3D iChannel2;
-layout (std140) uniform INPUT {
-    vec2 iResolution; float iTime, iFrame;
-    vec3 cameraPos; float fov;
-    vec3 targetPos; float iDrawWire;
-};
-
-mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
-{
-    vec3 cw = normalize(ta-ro);
-    vec3 cp = vec3(sin(cr), cos(cr), 0.0);
-    vec3 cu = normalize(cross(cw, cp));
-    vec3 cv = cross(cu, cw);
-    return mat3(cu, cv, cw);
-}
 
 float sdBox(vec3 pos, float b)
 {
     vec3 q = abs(pos) - b;
-    return length(max(q, 0.0)) + min(0.0, max(max(q.x, q.y), q.z));
+    return length(max(q, 0.0));
+}
+
+float sdTorus( vec3 p, vec2 t )
+{
+  vec2 q = vec2(length(p.xz)-t.x,p.y);
+  return length(q)-t.y;
 }
 
 vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
@@ -40,20 +28,14 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
 
 //============================================================//
 
-float sdTorus( vec3 p, vec2 t )
-{
-  vec2 q = vec2(length(p.xz)-t.x,p.y);
-  return length(q)-t.y;
-}
-
 vec2 map(vec3 pos)
 {
     float d = pos.y;
     float d2;
-    d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
+    //d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
 
     //d = min(d, d2);
-    //d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
+    d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
     //d2 = length(pos-vec3(0,.15,0)) - .15;
     d = min(d, d2);
 
@@ -69,22 +51,22 @@ vec3 calcNormal(vec3 pos)
                      e.xxx*map( pos + e.xxx ).x );
 }
 
-#define saturate(x) clamp(x, 0., 1.)
+#define saturate(x) clamp(x,0.,1.)
 out vec4 fragColor;
 void main()
 {
-    vec3 ro = cameraPos, ta = targetPos;
+    vec3 ro = _ro, ta = _ta;
     vec2 uv = (2.0*gl_FragCoord.xy-iResolution.xy)/iResolution.y;
     mat3 ca = setCamera(ro, ta, 0.0);
-    vec3 rd = ca * normalize(vec3(uv, fov));
+    vec3 rd = ca * normalize(vec3(uv, _fov));
 
-    // compute rasterized polygon depth in world unit
+    // compute rasterized polygon depth in world space
+    float dep = texture(iChannel0, gl_FragCoord.xy/iResolution.xy).r   *2.0-1.0;
+    vec3  nor = texture(iChannel1, gl_FragCoord.xy/iResolution.xy).rgb *2.0-1.0;
     const float n = 0.1, f = 1000.0;
     const float p10 = (f+n)/(f-n), p11 = -2.0*f*n/(f-n); // from perspective matrix
-    vec3 nor = texture(iChannel1, gl_FragCoord.xy/iResolution.xy).rgb *2.-1.;
-    nor = normalize(nor);
-    float d = texture(iChannel0, gl_FragCoord.xy/iResolution.xy).r;
-        d = p11/(d*2.-1. - p10) / dot(rd, normalize(ta-ro));
+        dep = p11 / ( (dep-p10) * dot(rd, normalize(ta-ro)) );
+        nor = normalize(nor);
 
     // ray marching
     float t, i, m;
@@ -108,7 +90,7 @@ void main()
 #endif
 
     // compare rasterized objects to raymarching objects
-    if (t < 100. || d < 100.) {
+    if (t < 100. || dep < 100.) {
         vec3 mate;
         if (m < 0.5) {
             mate = vec3(0.5,0.7,0.6);
@@ -116,7 +98,7 @@ void main()
             mate = vec3(0.7,0.7,0.5);
         }
 
-        if (t < d) { // raymarching objects
+        if (t < dep) { // raymarching objects
             vec3 pos = ro + rd*t;
             nor = calcNormal(pos);
         } else { // polygons
@@ -129,21 +111,11 @@ void main()
         col += vec3(0.9,0.9,0.5)*sun_dif*mate;
         col += vec3(0.5,0.6,0.9)*sky_dif;
     } else {
-        col += vec3(0.5,0.6,0.9)*1.2 - rd.y;
+        col += vec3(0.5,0.6,0.9)*1.2 - rd.y*.4;
     }
 
     //col += i/50. * .2;
 
     col = pow(col, vec3(0.4545));
     fragColor = vec4(col, 1);
-
-#if 0
-    { // depth test
-        const float n = 0.1, f = 1000.0;
-        float p10 = (f+n)/(f-n), p11 = -2.0*f*n/(f-n); // from perspective matrix
-        float ssd = t * dot(rd, normalize(ta-ro)); // convert camera dist to screen space dist
-        float ndc = p10+p11/ssd; // inverse of linear depth
-        gl_FragDepth = (ndc*gl_DepthRange.diff + gl_DepthRange.near + gl_DepthRange.far) / 2.0;
-    }
-#endif
 }

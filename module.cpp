@@ -7,6 +7,24 @@ using namespace glm;
 template<typename T> vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; };
 template<typename T> vector<T> &operator,(vector<T> &a, T const& b) { return a << b; };
 
+void foo()
+{
+    typedef struct {
+        int children[8];
+        int value;
+        bool isLeaf;
+    }Node;
+
+    struct Tree {
+        vector<Node> _nodes;
+        int _rootIndex;
+
+        void InsertLeaf(int value, uvec3 pos)
+        {
+        }
+    };
+}
+
 typedef struct {
     vec3 min, max;
 }Aabb;
@@ -29,48 +47,6 @@ float Area(Aabb A)
 {
     vec3 d = A.max - A.min;
     return 2.0f * (d.x * d.y + d.y * d.z + d.z * d.x);
-}
-
-int loadShader6(GLuint prog, const char *filename)
-{
-    FILE *f = fopen(filename, "r");
-    if (!f) {
-        fprintf(stderr, "ERROR: file %s not found.", filename);
-        return 1;
-    }
-    fseek(f, 0, SEEK_END);
-    long length = ftell(f);
-    rewind(f);
-    char source[length+1]; source[length] = 0; // set null terminator
-    fread(source, length, 1, f);
-    fclose(f);
-
-    { // detach shaders
-        GLsizei numShaders;
-        GLuint shaders[5];
-        glGetAttachedShaders(prog, 5, &numShaders, shaders);
-        for (int i=0; i<numShaders; i++) {
-            glDetachShader(prog, shaders[i]);
-        }
-    }
-
-    GLuint cs = glCreateShader(GL_COMPUTE_SHADER);
-    const char *string[] = { source };
-    glShaderSource(cs, 1, string, NULL);
-    glCompileShader(cs);
-    int success;
-    glGetShaderiv(cs, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        int length; glGetShaderiv(cs, GL_INFO_LOG_LENGTH, &length);
-        char message[length]; glGetShaderInfoLog(cs, length, &length, message);
-        fprintf(stderr, "ERROR: fail to compile compute shader. file \n%s\n", message);
-        return 2;
-    }
-    glAttachShader(prog, cs);
-    glDeleteShader(cs);
-    glLinkProgram(prog);
-    glValidateProgram(prog);
-    return 0;
 }
 
 float sdBox( vec3 p, float b )
@@ -178,10 +154,17 @@ int sdf2poly(uvec3 id, uint Res)
     return 2;
 }
 
+int loadShader2(GLuint prog, const char *filename);
+
 extern "C" int mainGeometry()
 {
-    static GLuint tex, frame = 0;
-    if (!frame++) {
+    static GLuint prog3, tex, frame = 0;
+    if (!frame++)
+    {
+        prog3 = glCreateProgram();
+        int err = loadShader2(prog3, "../line.glsl");
+        assert(err == 0);
+
         const int Size = 32;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_3D, tex);
@@ -194,22 +177,8 @@ extern "C" int mainGeometry()
         vector<Node> _nodes;
         int _rootIndex = nullIndex;
 
-        float ComputeCost()
-        {
-            float cost = 0.0f;
-            for (size_t i = 0; i < _nodes.size(); ++i)
-            {
-                if (_nodes[i].isLeaf == false)
-                {
-                    cost += Area(_nodes[i].box);
-                }
-            }
-            return cost;
-        }
-
         void InsertLeaf(int objectIndex, Aabb box)
         {
-
             int leafIndex = _nodes.size();
             _nodes.push_back({
                 box, objectIndex, nullIndex, nullIndex, nullIndex, true
@@ -343,7 +312,7 @@ extern "C" int mainGeometry()
         printf("%d\n", tree._nodes[i].objectIndex);
     }
 
-    return 0;
+//    return 0;
 
     V.clear();
     I.clear();
@@ -398,7 +367,7 @@ extern "C" int mainAnimation(float t)
     //t = M_PI;
     vec3 ta = vec3(0,1.3,0);
     vec3 ro = ta + vec3(sin(t),.3,cos(t))*2.5f;
-    mat2x4 data = mat2x4(vec4(ro, 1.2), vec4(ta, 0));
-    glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof(data), &data);
+    float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
+    glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
     return 0;
 }
