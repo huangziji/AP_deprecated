@@ -9,10 +9,10 @@ template<typename T> vector<T> &operator,(vector<T> &a, T const& b) { return a <
 
 typedef struct {
     vec3 min, max;
-}AABB;
+}Aabb;
 
 typedef struct {
-    AABB box;
+    Aabb box;
     int objectIndex;
     int parentIndex;
     int child1;
@@ -20,96 +20,15 @@ typedef struct {
     bool isLeaf;
 }Node;
 
-typedef struct {
-    Node* nodes;
-    int nodeCount;
-    int rootIndex;
-}Tree;
-
-AABB Union(AABB A, AABB B)
+Aabb Union(Aabb A, Aabb B)
 {
-    return (AABB){ min(A.min, B.min), max(A.max, B.max), };
+    return (Aabb){ min(A.min, B.min), max(A.max, B.max), };
 }
 
-float Area(AABB A)
+float Area(Aabb A)
 {
     vec3 d = A.max - A.min;
     return 2.0f * (d.x * d.y + d.y * d.z + d.z * d.x);
-}
-
-int AllocateInternalNode(Tree tree)
-{
-    return 0;
-}
-
-int AllocateLeafNode(Tree tree, int objectIndex, AABB box)
-{
-    return 0;
-}
-
-int PickBest(int bestSibling, int i)
-{
-    return 0;
-}
-
-void InsertLeaf(Tree tree, int objectIndex, AABB box)
-{
-    const int nullIndex = -1;
-
-    int leafIndex = AllocateLeafNode(tree, objectIndex, box);
-    if (tree.nodeCount == 0)
-    {
-        tree.rootIndex = leafIndex;
-        return;
-    }
-
-    // Stage 1: find the best sibling for the new leaf
-    int sibling = 0;
-    for (int i = 0; i < tree.nodeCount; ++i)
-    {
-        sibling = PickBest(sibling, i);
-    }
-
-    // Stage 2: create a new parent
-    int oldParent = tree.nodes[sibling].parentIndex;
-    int newParent = AllocateInternalNode(tree);
-    tree.nodes[newParent].parentIndex = oldParent;
-    tree.nodes[newParent].box = Union(box, tree.nodes[sibling].box);
-    if (oldParent != nullIndex)
-    {
-        // The sibling was not the root
-        if (tree.nodes[oldParent].child1 == sibling)
-        {
-            tree.nodes[oldParent].child1 = newParent;
-        }
-        else
-        {
-            tree.nodes[oldParent].child2 = newParent;
-        }
-        tree.nodes[newParent].child1 = sibling;
-        tree.nodes[newParent].child2 = leafIndex;
-        tree.nodes[sibling].parentIndex = newParent;
-        tree.nodes[leafIndex].parentIndex = newParent;
-    }
-    else
-    {
-        // The sibling was the root
-        tree.nodes[newParent].child1 = sibling;
-        tree.nodes[newParent].child2 = leafIndex;
-        tree.nodes[sibling].parentIndex = newParent;
-        tree.nodes[leafIndex].parentIndex = newParent;
-        tree.rootIndex = newParent;
-    }
-
-    // Stage 3: walk back up the tree refitting AABBs
-    int index = tree.nodes[leafIndex].parentIndex;
-    while (index != nullIndex)
-    {
-        int child1 = tree.nodes[index].child1;
-        int child2 = tree.nodes[index].child2;
-        tree.nodes[index].box = Union(tree.nodes[child1].box, tree.nodes[child2].box);
-        index = tree.nodes[index].parentIndex;
-    }
 }
 
 int loadShader6(GLuint prog, const char *filename)
@@ -184,7 +103,7 @@ typedef struct {
     GLuint firstIndex;
     GLint baseVertex;
     GLuint baseInstance;
-}DrawElementsIndirectCommand;
+}Cmd;
 
 static vector<Vertex> V;
 static vector<GLushort> I;
@@ -261,10 +180,8 @@ int sdf2poly(uvec3 id, uint Res)
 
 extern "C" int mainGeometry()
 {
-    static GLuint prog3, tex, frame = 0;
+    static GLuint tex, frame = 0;
     if (!frame++) {
-        prog3 = glCreateProgram();
-
         const int Size = 32;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_3D, tex);
@@ -272,22 +189,161 @@ extern "C" int mainGeometry()
         glBindTexture(GL_TEXTURE_3D, 0);
     }
 
+    static const int nullIndex = -1;
+    struct Tree {
+        vector<Node> _nodes;
+        int _rootIndex = nullIndex;
+
+        float ComputeCost()
+        {
+            float cost = 0.0f;
+            for (size_t i = 0; i < _nodes.size(); ++i)
+            {
+                if (_nodes[i].isLeaf == false)
+                {
+                    cost += Area(_nodes[i].box);
+                }
+            }
+            return cost;
+        }
+
+        void InsertLeaf(int objectIndex, Aabb box)
+        {
+
+            int leafIndex = _nodes.size();
+            _nodes.push_back({
+                box, objectIndex, nullIndex, nullIndex, nullIndex, true
+            });
+            if (_rootIndex == nullIndex)
+            {
+                _rootIndex = leafIndex;
+                return;
+            }
+
+            // Stage 1: find the best sibling for the new leaf
+            int sibling = 0;
+            {
+            Aabb leafBounds = _nodes[leafIndex].box;
+            int index = _rootIndex;
+            while (!_nodes[index].isLeaf)
+            {
+                int childA = _nodes[index].child1;
+                int childB = _nodes[index].child2;
+
+                float area = Area(_nodes[index].box);
+
+                Aabb combinedBounds = Union(_nodes[index].box, leafBounds);
+                float combinedArea = Area(combinedBounds);
+
+                // cost of creating a new parent for this node and the new leaf
+                float cost = 2.0f * combinedArea;
+
+                // minimum cost of pushing the leaf further down the tree
+                float inheritanceCost = 2.0f * (combinedArea - area);
+
+                // cost of descending into child A
+                float costA;
+                if (_nodes[childA].isLeaf)
+                {
+                    Aabb bounds;
+                    bounds = Union(leafBounds, _nodes[childA].box);
+                    costA = Area(bounds) + inheritanceCost;
+                }
+                else
+                {
+                    Aabb bounds;
+                    bounds = Union(leafBounds, _nodes[childA].box);
+                    float oldArea = Area(_nodes[childA].box);
+                    float newArea = Area(bounds);
+                    costA = (newArea - oldArea) + inheritanceCost;
+                }
+
+                // cost of descending into child B
+                float costB;
+                if (_nodes[childB].isLeaf)
+                {
+                    Aabb bounds;
+                    bounds = Union(leafBounds, _nodes[childB].box);
+                    costB = Area(bounds) + inheritanceCost;
+                }
+                else
+                {
+                    Aabb bounds;
+                    bounds = Union(leafBounds, _nodes[childB].box);
+                    float oldArea = Area(_nodes[childB].box);
+                    float newArea = Area(bounds);
+                    costB = (newArea - oldArea) + inheritanceCost;
+                }
+
+                // descend according to the minimum cost
+                if (cost < costA && cost < costB)
+                    break;
+
+                //descend
+                index = (costA < costB) ? childA : childB;
+            }
+
+            sibling = index;
+            }
+
+            // Stage 2: create a new parent
+            int oldParent = _nodes[sibling].parentIndex;
+            int newParent = _nodes.size();
+            _nodes.push_back({
+                {}, nullIndex, nullIndex, nullIndex, nullIndex, false });// = AllocateInternalNode();
+
+            _nodes[newParent].parentIndex = oldParent;
+            _nodes[newParent].box = Union(box, _nodes[sibling].box);
+            if (oldParent != nullIndex)
+            {
+                // The sibling was not the root
+                if (_nodes[oldParent].child1 == sibling)
+                {
+                    _nodes[oldParent].child1 = newParent;
+                }
+                else
+                {
+                    _nodes[oldParent].child2 = newParent;
+                }
+                _nodes[newParent].child1 = sibling;
+                _nodes[newParent].child2 = leafIndex;
+                _nodes[sibling].parentIndex = newParent;
+                _nodes[leafIndex].parentIndex = newParent;
+            }
+            else
+            {
+                // The sibling was the root
+                _nodes[newParent].child1 = sibling;
+                _nodes[newParent].child2 = leafIndex;
+                _nodes[sibling].parentIndex = newParent;
+                _nodes[leafIndex].parentIndex = newParent;
+                _rootIndex = newParent;
+            }
+
+            // Stage 3: walk back up the tree refitting AABBs
+            int index = _nodes[leafIndex].parentIndex;
+            while (index != nullIndex)
+            {
+                int child1 = _nodes[index].child1;
+                int child2 = _nodes[index].child2;
+                _nodes[index].box = Union(_nodes[child1].box, _nodes[child2].box);
+                index = _nodes[index].parentIndex;
+            }
+        }
+    };
+
+    Tree tree;
+    tree.InsertLeaf(1, { vec3(0), vec3(1) });
+    tree.InsertLeaf(2, { vec3(5), vec3(6) });
+    tree.InsertLeaf(3, { vec3(6), vec3(7) });
+    tree.InsertLeaf(4, { vec3(3), vec3(4) });
+
+    for (size_t i=0; i<tree._nodes.size(); i++)
     {
-        assert(loadShader6(prog3, "../sdf.glsl") == 0);
-
-        int data[128] = { 1 };
-        GLuint ssbo;
-        glGenBuffers(1, &ssbo);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof data, data, GL_STATIC_COPY);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-
-        glUseProgram(prog3);
-        glDispatchCompute(2,2,2);
-        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-        glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof data, data);
+        printf("%d\n", tree._nodes[i].objectIndex);
     }
+
+    return 0;
 
     V.clear();
     I.clear();
@@ -324,7 +380,7 @@ extern "C" int mainGeometry()
 
     // TODO: polygonize in octree
 
-    vector<DrawElementsIndirectCommand> C = { {GLuint(I.size()),1,0,0,0} };
+    static vector<Cmd> C = { {GLuint(I.size()),1,0,0,0} };
 
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 24, 0);

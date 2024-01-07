@@ -50,12 +50,12 @@ vec2 map(vec3 pos)
 {
     float d = pos.y;
     float d2;
-    //d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
+    d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
 
     //d = min(d, d2);
     //d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
     //d2 = length(pos-vec3(0,.15,0)) - .15;
-    //d = min(d, d2);
+    d = min(d, d2);
 
     return vec2(d, 1.);
 }
