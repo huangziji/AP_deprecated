@@ -5,6 +5,8 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 
+static int _mainAnimation(float) { return 0; }
+
 static void errorCallback(int _, const char* desc)
 {
     fprintf(stderr, "ERROR: %s\n", desc);
@@ -74,33 +76,40 @@ int main(int argc, char *argv[])
         glBufferData(GL_UNIFORM_BUFFER, sizeof data, data, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
 
-        GLuint vao, vbo, ibo, cbo;
+        GLuint vao, ibo, cbo;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
-        glGenBuffers(1, &vbo);
         glGenBuffers(1, &ibo);
         glGenBuffers(1, &cbo);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
+
+        GLuint vbo1;
+        glGenBuffers(1, &vbo1);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo1);
     }
 
     int loadShader1(GLuint, const char*);
     int loadShader2(GLuint, const char*);
 
+    const GLuint prog3 = glCreateProgram();
+    assert(0 == loadShader2(prog3, "../line.glsl"));
+
     const GLuint prog2 = glCreateProgram();
-    assert(loadShader2(prog2, "../base.glsl") == 0);
+    assert(0 == loadShader2(prog2, "../base.glsl"));
     GLint enableWireFrame = glGetUniformLocation(prog2, "enableWireFrame");
 
     const GLuint prog1 = glCreateProgram();
     const char *shaderFilename="../base.frag";
     long lastModTime1;
 
-    typedef int (plugFunction1)(void);
-    typedef int (plugFunction2)(float);
-    plugFunction1 *mainGeometry;
-    plugFunction2 *mainAnimation;
-    int result1 = 0, result2 = 0;
+    typedef int (plugFunction1)(float);
+    typedef int (plugFunction2)(void);
+    typedef int (plugFunction3)(void);
+    plugFunction1 *mainAnimation = _mainAnimation;
+    plugFunction2 *mainGeometry;
+    plugFunction3 *mainGizmo;
+    int result1 = 0, result2 = 0, result3 = 0;
 
     void *libraryHandle = NULL;
     const char *libraryFilename="libModule.so";
@@ -126,7 +135,6 @@ int main(int argc, char *argv[])
             }
         }
 
-#if 1
         {
             struct stat libStat;
             int err = stat(libraryFilename, &libStat);
@@ -140,16 +148,20 @@ int main(int argc, char *argv[])
                 if (!libraryHandle) continue;
                 printf("INFO: reloading file %s\n", libraryFilename);
                 lastModTime2 = libStat.st_mtime;
-                mainAnimation = (plugFunction2*)dlsym(libraryHandle, "mainAnimation");
+                mainAnimation = (plugFunction1*)dlsym(libraryHandle, "mainAnimation");
                 assert(mainAnimation);
-                mainGeometry  = (plugFunction1*)dlsym(libraryHandle, "mainGeometry");
-                assert(mainGeometry);
-                result1 = mainGeometry();
-            }
-            result2 = mainAnimation(glfwGetTime());
-        }
-#endif
 
+                mainGeometry = (plugFunction2*)dlsym(libraryHandle, "mainGeometry");
+                if (mainGeometry) result2 = mainGeometry();
+                mainGizmo = (plugFunction3*)dlsym(libraryHandle, "mainGizmo");
+                if (mainGizmo) result3 = mainGizmo();
+            }
+            float t = glfwGetTime();
+            glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &t);
+            result1 = mainAnimation(t);
+        }
+
+        glClearColor(0,0,0,1);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthFunc(GL_LESS);
         glEnable(GL_BLEND);
@@ -157,21 +169,20 @@ int main(int argc, char *argv[])
         glEnable(GL_CULL_FACE);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0,0, RES_X, RES_Y);
-        glClearColor(0,0,0,1);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         glUseProgram(prog2);
         glProgramUniform1f(prog2, enableWireFrame, 0);
-        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result1, 0);
+        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result2, 0);
 
-        if (result2)
+        if (result1)
         {
             glPointSize(2.0);
             glLineWidth(1.0);
             glDisable(GL_CULL_FACE);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             glProgramUniform1f(prog2, enableWireFrame, 1);
-            glMultiDrawElementsIndirect(GL_POINTS, GL_UNSIGNED_SHORT, NULL, result1, 0);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result1, 0);
+            glMultiDrawElementsIndirect(GL_POINTS, GL_UNSIGNED_SHORT, NULL, result2, 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result2, 0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
 
@@ -183,6 +194,9 @@ int main(int argc, char *argv[])
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glUseProgram(prog3);
+        glDrawArrays(GL_LINES, 0, result3);
 
         glfwSwapBuffers(window1);
         glfwPollEvents();
@@ -198,7 +212,7 @@ int main(int argc, char *argv[])
     pclose(pipe);
 #endif
 
-    assert(dlclose(libraryHandle) == 0);
+    //assert(dlclose(libraryHandle) == 0);
 
     int err = glGetError();
     if (err) fprintf(stderr, "ERROR: %x\n", err);

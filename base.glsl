@@ -1,5 +1,4 @@
 #version 300 es
-precision mediump float;
 
 #ifdef _VS
 #define _varying out

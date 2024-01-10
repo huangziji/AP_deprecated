@@ -1,5 +1,4 @@
 #version 300 es
-precision mediump float;
 
 float sdBox(vec3 pos, float b)
 {
@@ -13,7 +12,8 @@ float sdTorus( vec3 p, vec2 t )
   return length(q)-t.y;
 }
 
-vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
+// axis aligned box centered at the origin, with size boxSize
+vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
 {
     vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
     vec3 n = m*ro;   // can precompute if traversing a set of aligned boxes
@@ -23,6 +23,9 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
     float tN = max( max( t1.x, t1.y ), t1.z );
     float tF = min( min( t2.x, t2.y ), t2.z );
     if( tN>tF || tF<0.0) return vec2(-1.0); // no intersection
+    outNormal = (tN>0.0) ? step(vec3(tN),t1) : // ro ouside the box
+                           step(t2,vec3(tF));  // ro inside the box
+    outNormal *= -sign(rd);
     return vec2( tN, tF );
 }
 
@@ -30,14 +33,12 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize )
 
 vec2 map(vec3 pos)
 {
-    float d = pos.y;
+    float d = pos.y+.5;
     float d2;
-    //d2 = sdBox(pos-vec3(0,1,0), .7) - 0.02;
-
+    //d2 = sdBox(pos, .7) - 0.02;
+    //d2 = sdTorus(pos, vec2(.5,.2));
+    //d2 = length(pos) - .15;
     //d = min(d, d2);
-    d2 = sdTorus(pos-vec3(0,1.,0), vec2(.5,.2));
-    //d2 = length(pos-vec3(0,.15,0)) - .15;
-    d = min(d, d2);
 
     return vec2(d, 1.);
 }
@@ -81,11 +82,69 @@ void main()
 
 #if 1 // ray tracing
     {
-        vec2 tt = boxIntersection(ro-vec3(0,1,0), rd, vec3(.8));
-        if (tt.y > tt.x) {
-            ivec3 size = textureSize(iChannel2, 0);
-            col += .1;
+        vec3 nor;
+        vec3 off = vec3(.8);
+        vec2 tt = boxIntersection(ro, rd, off, nor);
+        if (tt.y > tt.x)
+        {
+            int size = textureSize(iChannel2, 0).r;
+            vec3 sca = float(size)/(off*2.0);
+
+            // world space to voxel space
+            vec3 pos = ro + rd*max(tt.x, 0.); // start with ro if ro is inside of box
+            vec3 voxelPos = ( pos+off )*sca;
+
+            float lvl = 2.;
+            float voxelSize = exp2(lvl);
+
+            vec3 deltaDist = abs(vec3(length(rd)) / rd);
+            ivec3 rayStep = ivec3(sign(rd));
+            ivec3 mapPos = ivec3(floor(voxelPos - nor*.0001));
+                mapPos -= mapPos%int(voxelSize);
+            vec3 sideDist = ( (vec3(mapPos)-voxelPos)+ voxelSize*max(sign(rd),0.0) )*sign(rd)*deltaDist;
+
+            bool hit;
+            int steps = 0;
+            vec3 mask = abs(nor);
+
+            while ( true )
+            {
+                vec3 sp = (vec3(mapPos)+.5*voxelSize)/float(size);
+                //hit = texelFetch( iChannel2, mapPos, int(lvl) ).r < 0.1;
+                hit = textureLod( iChannel2, sp, lvl ).r < .5;
+
+                if (hit)
+                {
+                    if (lvl > .5)
+                    {
+                        voxelSize = exp2(--lvl);
+                        mapPos = ivec3(floor(voxelPos - nor*.0001));
+                            mapPos -= mapPos%int(voxelSize);
+                        sideDist = ( (vec3(mapPos)-voxelPos) + voxelSize*max(sign(rd),0.0) )*sign(rd)*deltaDist;
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                mask = step(sideDist.xyz, min(sideDist.yzx, sideDist.zxy)) * voxelSize;
+                sideDist += mask * deltaDist;
+                mapPos += ivec3(mask) * rayStep;
+
+                steps++;
+
+                if ( any(greaterThanEqual(mapPos, ivec3(size))) ||
+                     any(lessThan(mapPos, ivec3(0))) )
+                    break;
+            }
+
+            col += float(steps)/150.;
+            //col += dot(normalize(mask), vec3(.5,.7,.9))*.7*float(hit);
         }
+        fragColor = vec4(col, 1);
+        return;
     }
 #endif
 
