@@ -15,15 +15,15 @@ float sdBox( vec3 p, float b )
 
 float sdTorus( vec3 p, vec2 t )
 {
-  vec2 q = vec2(length(vec2(p.x,p.z))-t.x,p.y);
-  return length(q)-t.y;
+    vec2 q = vec2(length(vec2(p.x,p.z))-t.x,p.y);
+    return length(q)-t.y;
 }
 
 float map(vec3 pos)
 {
     float d1, d2;
-    //d1 = sdBox(pos-vec3(0,1,0), .5) - .02;
-    //d2 = length(pos-vec3(0,1,0)) - .5;
+    //d1 = sdBox(pos, .5) - .02;
+    //d2 = length(pos) - .5;
     //d1 = min(d1, d2);
     d2 = sdTorus(pos, vec2(.5,.2));
     return d2;//max(d1, d2);
@@ -124,16 +124,8 @@ extern "C" int mainGeometry()
         const int Size = 64;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_3D, tex);
-        glTexStorage3D(GL_TEXTURE_3D, 1, GL_R8, Size,Size,Size);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glTexStorage3D(GL_TEXTURE_3D, 5, GL_R8, Size,Size,Size);
         glBindTexture(GL_TEXTURE_3D, 0);
-
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_3D, tex);
     }
 
     {
@@ -141,6 +133,46 @@ extern "C" int mainGeometry()
         glBindImageTexture(2, tex, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8);
         glUseProgram(prog);
         glDispatchCompute(8,8,8);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        glBindTexture(GL_TEXTURE_3D, tex);
+        glGenerateMipmap(GL_TEXTURE_3D);
+//        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+//        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+//        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+//        glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_3D, tex);
+        return 0;
+
+        const int Size = 64;
+        const int SizeMip1 = Size/2;
+        char pixels[Size*Size*Size];
+        char pixelsMip1[SizeMip1*SizeMip1*SizeMip1] = {};
+        glBindTexture(GL_TEXTURE_3D, tex);
+        glGetTexImage(GL_TEXTURE_3D, 0, GL_RED, GL_BYTE, pixels);
+        {
+        for (int z=0; z<SizeMip1; z++)
+            for (int y=0; y<SizeMip1; y++)
+                for (int x=0; x<SizeMip1; x++)
+                {
+                    pixelsMip1[x + y*Size + z*Size*Size] = 0;
+                    for (int i=0; i<8; i++)
+                    {
+                        static const ivec3 vertmap[] = {
+                                {0,0,0}, {1,0,0}, {0,1,0}, {1,1,0},
+                                {0,0,1}, {1,0,1}, {0,1,1}, {1,1,1},
+                        };
+                        int xx = x * 2 + vertmap[i].x;
+                        int yy = y * 2 + vertmap[i].y;
+                        int zz = z * 2 + vertmap[i].z;
+                        pixelsMip1[x + y*Size + z*Size*Size] |= 0xff;//pixels[xx + yy*Size + zz*Size*Size];
+                    }
+                }
+        }
+        glTexSubImage3D(GL_TEXTURE_3D, 1, 0,0,0, SizeMip1,SizeMip1,SizeMip1,
+                            GL_RED, GL_BYTE, pixelsMip1);
     }
 
     return 0;

@@ -80,7 +80,7 @@ void main()
 
     vec3 col = vec3(0);
 
-#if 1 // ray tracing
+#if 1 // voxel ray marching
     {
         vec3 nor;
         vec3 off = vec3(.8);
@@ -94,33 +94,36 @@ void main()
             vec3 pos = ro + rd*max(tt.x, 0.); // start with ro if ro is inside of box
             vec3 voxelPos = ( pos+off )*sca;
 
-            float lvl = 2.;
-            float voxelSize = exp2(lvl);
+            int lvl = 3;
+            int voxelSize = 1<<lvl;
 
             vec3 deltaDist = abs(vec3(length(rd)) / rd);
             ivec3 rayStep = ivec3(sign(rd));
             ivec3 mapPos = ivec3(floor(voxelPos - nor*.0001));
-                mapPos -= mapPos%int(voxelSize);
-            vec3 sideDist = ( (vec3(mapPos)-voxelPos)+ voxelSize*max(sign(rd),0.0) )*sign(rd)*deltaDist;
+                mapPos -= mapPos%voxelSize;
+            vec3 sideDist = ( (vec3(mapPos)-voxelPos) + float(voxelSize)*max(sign(rd),0.0) )*sign(rd)*deltaDist;
 
             bool hit;
             int steps = 0;
             vec3 mask = abs(nor);
+            float tF;
 
             while ( true )
             {
-                vec3 sp = (vec3(mapPos)+.5*voxelSize)/float(size);
-                //hit = texelFetch( iChannel2, mapPos, int(lvl) ).r < 0.1;
-                hit = textureLod( iChannel2, sp, lvl ).r < .5;
+                vec3 sp = (vec3(mapPos)+.5)/float(size);
+                //hit = texelFetch( iChannel2, mapPos/voxelSize, lvl ).r > 0.0001;
+                hit = textureLod( iChannel2, sp, float(lvl) ).r > 0.0001;
 
                 if (hit)
                 {
-                    if (lvl > .5)
+//                    break;
+                    if (lvl > 0)
                     {
-                        voxelSize = exp2(--lvl);
-                        mapPos = ivec3(floor(voxelPos - nor*.0001));
-                            mapPos -= mapPos%int(voxelSize);
-                        sideDist = ( (vec3(mapPos)-voxelPos) + voxelSize*max(sign(rd),0.0) )*sign(rd)*deltaDist;
+                        lvl--;
+                        voxelSize = 1<<lvl;
+                        mapPos = ivec3(floor(voxelPos + rd*tF + mask*sign(rd)*.0001));
+                        mapPos -= mapPos%(voxelSize);
+                        sideDist = ( (vec3(mapPos)-voxelPos) + float(voxelSize)*max(sign(rd),0.0) )*sign(rd)*deltaDist;
                         continue;
                     }
                     else
@@ -129,9 +132,10 @@ void main()
                     }
                 }
 
-                mask = step(sideDist.xyz, min(sideDist.yzx, sideDist.zxy)) * voxelSize;
-                sideDist += mask * deltaDist;
-                mapPos += ivec3(mask) * rayStep;
+                mask = step(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+                tF = min(min(sideDist.x, sideDist.y), sideDist.z);
+                sideDist += mask * deltaDist * float(voxelSize);
+                mapPos += ivec3(mask) * rayStep * voxelSize;
 
                 steps++;
 
@@ -140,8 +144,8 @@ void main()
                     break;
             }
 
-            col += float(steps)/150.;
-            //col += dot(normalize(mask), vec3(.5,.7,.9))*.7*float(hit);
+//            col += float(steps)/150.;
+            col += dot(normalize(mask), vec3(.5,.7,.9))*.7*float(hit);
         }
         fragColor = vec4(col, 1);
         return;

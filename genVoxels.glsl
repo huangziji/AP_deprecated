@@ -1,4 +1,9 @@
 #version 430
+float sdBox( vec3 p, float b )
+{
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.f));
+}
 
 float sdTorus( vec3 p, vec2 t )
 {
@@ -8,7 +13,9 @@ float sdTorus( vec3 p, vec2 t )
 
 float map(vec3 pos)
 {
-    return sdTorus(pos, vec2(.5,.2));
+    float d = sdBox(pos, .5) - .02;
+    float d2 = sdTorus(pos, vec2(.5,.2));
+    return max(-d, d2);
 }
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
@@ -19,5 +26,5 @@ void main()
 
     ivec3 p = ivec3(gl_GlobalInvocationID.xyz);
     float d = map(vec3(p)*sca - off);
-    imageStore(outImage, p, vec4(d > 0));
+    imageStore(outImage, p, vec4(d < 0));
 }
