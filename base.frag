@@ -33,14 +33,17 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
 
 vec2 map(vec3 pos)
 {
-    float d = pos.y+.5;
-    float d2;
-    //d2 = sdBox(pos, .7) - 0.02;
-    //d2 = sdTorus(pos, vec2(.5,.2));
+    float d1, d2;
+    d1 = 1e5;
+//    d2 = sdBox(pos, .5) - .02;
+//    d1 = min(d1, d2);
+//    d2 = sdTorus(pos, vec2(.5,.2));
+//    d1 = max(-d1, d2);
+    d2 = pos.y+.5;
+    d1 = min(d1, d2);
     //d2 = length(pos) - .15;
-    //d = min(d, d2);
 
-    return vec2(d, 1.);
+    return vec2(d1, 1.);
 }
 
 vec3 calcNormal(vec3 pos)
@@ -71,7 +74,7 @@ void main()
 
     // ray marching
     float t, i, m;
-    for (t=0.,i=0.; i<50.; i++) {
+    for (t=0.,i=0.; i<100.; i++) {
         vec2 h = map(ro + rd*t);
         t += h.x;
         m = h.y;
@@ -94,12 +97,12 @@ void main()
             vec3 pos = ro + rd*max(tt.x, 0.); // start with ro if ro is inside of box
             vec3 voxelPos = ( pos+off )*sca;
 
-            int lvl = 3;
+            int lvl = int(floor(3.9 * saturate(sin(iTime)*.49+.49)));
             int voxelSize = 1<<lvl;
 
             vec3 deltaDist = abs(vec3(length(rd)) / rd);
             ivec3 rayStep = ivec3(sign(rd));
-            ivec3 mapPos = ivec3(floor(voxelPos - nor*.0001));
+            ivec3 mapPos = ivec3(floor(voxelPos + nor*.0001));
                 mapPos -= mapPos%voxelSize;
             vec3 sideDist = ( (vec3(mapPos)-voxelPos) + float(voxelSize)*max(sign(rd),0.0) )*sign(rd)*deltaDist;
 
@@ -116,7 +119,6 @@ void main()
 
                 if (hit)
                 {
-//                    break;
                     if (lvl > 0)
                     {
                         lvl--;
@@ -144,7 +146,7 @@ void main()
                     break;
             }
 
-//            col += float(steps)/150.;
+            col += float(steps)/150.;
             col += dot(normalize(mask), vec3(.5,.7,.9))*.7*float(hit);
         }
         fragColor = vec4(col, 1);

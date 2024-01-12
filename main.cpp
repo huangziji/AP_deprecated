@@ -69,24 +69,16 @@ int main(int argc, char *argv[])
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, tex2);
 
+        GLuint vao;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
         float data[16] = { RES_X,RES_Y,0,0, 1,1,1,1, };
         GLuint ubo;
         glGenBuffers(1, &ubo);
         glBindBuffer(GL_UNIFORM_BUFFER, ubo);
         glBufferData(GL_UNIFORM_BUFFER, sizeof data, data, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
-
-        GLuint vao, ibo, cbo;
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
-        glGenBuffers(1, &ibo);
-        glGenBuffers(1, &cbo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
-
-        GLuint vbo1;
-        glGenBuffers(1, &vbo1);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo1);
     }
 
     int loadShader1(GLuint, const char*);
@@ -108,7 +100,7 @@ int main(int argc, char *argv[])
     typedef int (plugFunction3)(void);
     plugFunction1 *mainAnimation = _mainAnimation;
     plugFunction2 *mainGeometry;
-    plugFunction3 *mainGizmo;
+    plugFunction3 *mainGUI;
     int result1 = 0, result2 = 0, result3 = 0;
 
     void *libraryHandle = NULL;
@@ -153,8 +145,8 @@ int main(int argc, char *argv[])
 
                 mainGeometry = (plugFunction2*)dlsym(libraryHandle, "mainGeometry");
                 if (mainGeometry) result2 = mainGeometry();
-                mainGizmo = (plugFunction3*)dlsym(libraryHandle, "mainGizmo");
-                if (mainGizmo) result3 = mainGizmo();
+                mainGUI = (plugFunction3*)dlsym(libraryHandle, "mainGizmo");
+                if (mainGUI) result3 = mainGUI();
             }
             float t = glfwGetTime();
             glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &t);
@@ -170,11 +162,15 @@ int main(int argc, char *argv[])
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0,0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-        glUseProgram(prog2);
-        glProgramUniform1f(prog2, enableWireFrame, 0);
-        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result2, 0);
 
-        if (result1)
+        if (result2 > 0)
+        {
+            glUseProgram(prog2);
+            glProgramUniform1f(prog2, enableWireFrame, 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, result2, 0);
+        }
+
+        if (result2 > 0 && result1)
         {
             glPointSize(2.0);
             glLineWidth(1.0);
@@ -195,9 +191,6 @@ int main(int argc, char *argv[])
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-        glUseProgram(prog3);
-        glDrawArrays(GL_LINES, 0, result3);
-
         glfwSwapBuffers(window1);
         glfwPollEvents();
 
@@ -205,6 +198,8 @@ int main(int argc, char *argv[])
         static char buffer[RES_X*RES_Y*3];
         glReadPixels(0,0, RES_X, RES_Y, GL_RGB, GL_UNSIGNED_BYTE, buffer);
         fwrite(buffer, sizeof(buffer), 1, pipe);
+        static int frame = 0;
+        if (frame++ > 60*10) break;
 #endif
     }
 
@@ -212,8 +207,10 @@ int main(int argc, char *argv[])
     pclose(pipe);
 #endif
 
-    //assert(dlclose(libraryHandle) == 0);
-
+    if (libraryHandle)
+    {
+        assert(dlclose(libraryHandle) == 0);
+    }
     int err = glGetError();
     if (err) fprintf(stderr, "ERROR: %x\n", err);
     glfwDestroyWindow(window1);

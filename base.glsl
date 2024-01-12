@@ -31,7 +31,7 @@ void main(void)
         fragColor = vec4(1.0);
     } else {
         vec3 nor = normalize(v_Normal);
-        fragColor = vec4(nor*.5+.5, 1);
+        fragColor = vec4(nor*0.5+0.5, 1.0);
     }
 }
 #endif
