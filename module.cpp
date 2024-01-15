@@ -31,7 +31,7 @@ float map(vec3 pos)
 }
 
 typedef struct { vec3 pos, nor; } Vertex;
-typedef struct {vec3 translation; } Instance;
+typedef struct { vec3 sca, ce, off, swi; } Instance;
 typedef struct {
     GLuint count;
     GLuint instanceCount;
@@ -47,6 +47,7 @@ struct Geometry
     vector<Instance> I;
     vector<Command> C;
     GLuint vbo, ibo, ebo, cbo;
+    GLuint firstIndex = 0, baseVertex = 0;
 
     void Init()
     {
@@ -66,19 +67,10 @@ struct Geometry
 
     void EmitVertex()
     {
-        if (C.empty())
-        {
-            GLuint count = F.size();
-            C.push_back({ count, 0,0,0,0 });
-        }
-        else
-        {
-            GLuint firstIndex = C.back().firstIndex;
-            GLuint baseVertex = C.back().baseVertex;
-            GLuint baseInstance = I.size();
-            GLuint count = F.size()-firstIndex;
-            C.push_back({ count, 0, firstIndex, baseVertex, baseInstance });
-        }
+        GLuint baseInstance = I.size();
+        GLuint count = F.size()-firstIndex;
+        C.push_back({ count, 0, firstIndex, baseVertex, baseInstance });
+        firstIndex = F.size(), baseVertex = V.size();
     }
 
     void EndPrimitive()
@@ -92,9 +84,18 @@ struct Geometry
 
         glBindBuffer(GL_ARRAY_BUFFER, ibo);
         glBufferData(GL_ARRAY_BUFFER, I.size()*sizeof I[0], I.data(), GL_STATIC_DRAW);
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 12, 0);
-        glVertexAttribDivisor(2, 1);
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 48, 0);
+        glVertexAttribDivisor(4, 1);
+        glEnableVertexAttribArray(5);
+        glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, 48, (void*)12);
+        glVertexAttribDivisor(5, 1);
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, 48, (void*)24);
+        glVertexAttribDivisor(6, 1);
+        glEnableVertexAttribArray(7);
+        glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE, 48, (void*)36);
+        glVertexAttribDivisor(7, 1);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size()*sizeof F[0], F.data(), GL_STATIC_DRAW);
@@ -143,10 +144,8 @@ void GenerateNormals(Geometry &self)
 {
     auto &V = self.V;
     auto &F = self.F;
-    auto &C = self.C;
-
-    uint firstIndex = C.empty() ? 0 : C.back().firstIndex;
-    int baseVertex = C.empty() ? 0 : C.back().baseVertex;
+    uint firstIndex = self.firstIndex;
+    uint baseVertex = self.baseVertex;
     for (int i=baseVertex; i<V.size(); i++)
     {
         V[i].nor = vec3(0);
@@ -255,25 +254,25 @@ void GenerateCubeMap(Geometry &self, uint N, Vertex f(vec3))
         for (int t=0; t<N; t++)
             for (int s=0; s<N; s++)
     {
-        vec3 uv = vec3(vec2(s,t)/(N-1.0f)*2.0f-1.0f, 1) * ToCubeMapSpace[i];
+        vec3 uv = vec3(vec2(s,t)/(N-1.f)*2.f-1.f, 1) * ToCubeMapSpace[i];
+        GLushort idx = GLushort(self.V.size()-self.baseVertex);
         self << f(uv);
         if (s != N-1 && t != N-1)
         {
-            int idx = i*N*N + t*N + s;
-            self << idx,idx+1,idx+N,idx+N,idx+1,idx+1+N;
+            self << idx,idx+1,idx+N, idx+N,idx+1,idx+1+N;
         }
     }
 }
 
 Vertex CubeMap2Cube(vec3 uv)
 {
-    return {uv*.5f,};
+    return { uv, };
 }
 
 Vertex CubeMap2Sphere(vec3 uv)
 {
     vec3 pos = normalize(uv);
-    return {pos*.5f,pos};
+    return { pos, pos };
 }
 
 Vertex CubeMap2Capsule(vec3 uv)
@@ -281,7 +280,7 @@ Vertex CubeMap2Capsule(vec3 uv)
     float h = 4.;
     vec3 nor = normalize(uv);
     vec3 pos = sign(uv.y)*vec3(0,h,0) + nor;
-    return {pos*.1f, nor};
+    return { pos, nor };
 }
 
 int loadShader3(GLuint, const char*);
@@ -290,28 +289,28 @@ extern "C" int mainGeometry()
 {
     static Geometry geom;
     geom.Clear();
-    static GLuint prog, tex, frame = 0;
+    static GLuint prog1, tex1, frame = 0;
     if (!frame++)
     {
         geom.Init();
-        prog = glCreateProgram();
+        prog1 = glCreateProgram();
 
         const int Size = 64;
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_3D, tex);
+        glGenTextures(1, &tex1);
+        glBindTexture(GL_TEXTURE_3D, tex1);
         glTexStorage3D(GL_TEXTURE_3D, 5, GL_R8, Size,Size,Size);
         glBindTexture(GL_TEXTURE_3D, 0);
     }
 
     {
-        int err = loadShader3(prog, "../genVoxels.glsl");
-        glBindImageTexture(2, tex, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8);
-        glUseProgram(prog);
+        int err = loadShader3(prog1, "../genVoxels.glsl");
+        glBindImageTexture(3, tex1, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8);
+        glUseProgram(prog1);
         glDispatchCompute(8,8,8);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
-        glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_3D, tex);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_3D, tex1);
         glGenerateMipmap(GL_TEXTURE_3D);
     }
 
@@ -323,22 +322,168 @@ extern "C" int mainGeometry()
 //            for (int x=0; x<Res; x++)
 //                sdf2poly(geom, {x,y,z}, Res);
 
-    GenerateCubeMap(geom, 10, CubeMap2Capsule);
-    //GenerateNormals(geom);
-
-    geom.EmitVertex();
-    geom << Instance{ {0,0,1} }, Instance{ {1,0,0} }
-             ,Instance{ {-1,0,0} }, Instance{ {0,0,-1} };
     geom.EndPrimitive();
     return geom.C.size();
 }
 
+typedef enum {
+    Root,
+    Hips,
+    Neck,
+    Head,
+    UpperArmL, UpperArmR,
+    LowerArmL, LowerArmR,
+    UpperLegL, UpperLegR,
+    LowerLegL, LowerLegR,
+} IkRig;
+static const float shdHei = 1.6, hipHei = 1.0;
+static vector<uvec2> ipose;
+static vector<vec3> pose = {
+    vec3(0),
+    vec3( 0,hipHei,0), // hip
+    vec3( 0,shdHei,0), // neck
+    vec3( 0,  1.75,0), // head
+    vec3(-.2,shdHei,0), vec3(.2,shdHei,0), // upper arms
+    vec3(-.7,shdHei,0), vec3(.7,shdHei,0), // lower arms
+    vec3(-.2,hipHei,0), vec3(.2,hipHei,0), // upper legs
+    vec3(-.2,     0,0), vec3(.2,     0,0), // lower legs
+};
+
+mat3x3 rotationAlign( vec3 d, vec3 z )
+{
+    vec3  v = cross( z, d );
+    float c = dot( z, d );
+    float k = 1.0f/(1.0f+c);
+
+    return mat3x3( v.x*v.x*k + c,     v.y*v.x*k - v.z,    v.z*v.x*k + v.y,
+                   v.x*v.y*k + v.z,   v.y*v.y*k + c,      v.z*v.y*k - v.x,
+                   v.x*v.z*k - v.y,   v.y*v.z*k + v.x,    v.z*v.z*k + c    );
+}
+
+vec3 solve( vec3 p, float r1, float r2, vec3 dir )
+{
+        vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
+
+        float s = r1*r1 - dot(q,q);
+        s = max( s, 0.0f );
+        q += sqrt(s)*normalize(cross(p,dir));
+
+        return q;
+}
+
+struct Ik2b
+{
+    int o, p;
+    vec3 dir;
+
+    int x;
+    float r1, r2;
+
+    void Init()
+    {
+        r1 = length(pose[p]-pose[o]) * .5;
+        r2 = r1;
+        x = pose.size();
+        pose.push_back({});
+        ipose.push_back({o, x});
+        ipose.push_back({x, p});
+        pose[x] = pose[o] + solve(pose[p]-pose[o], r1, r2, dir);
+    }
+};
+
+typedef struct {
+    int o, p;
+    vec3 dir;
+
+    int x, n;
+    float r; // uniform length joints
+} Ik2d;
+
+static vector<Ik2b> iks;
+static vector<vec3> _local;
+
+extern "C" int mainGUI(void)
+{
+    ipose.push_back({Root, Hips});
+    ipose.push_back({Hips,UpperLegL});
+    ipose.push_back({Hips,UpperLegR});
+    iks.push_back({ Hips, Neck, vec3(1,0,0) }); iks.back().Init();
+    ipose.push_back({Neck,UpperArmL});
+    ipose.push_back({Neck,UpperArmR});
+    ipose.push_back({Neck,Head});
+    iks.push_back({ UpperLegL, LowerLegL, vec3( 1,0,0) }); iks.back().Init();
+    iks.push_back({ UpperLegR, LowerLegR, vec3( 1,0,0) }); iks.back().Init();
+    iks.push_back({ UpperArmL, LowerArmL, vec3(0, 1,0) }); iks.back().Init();
+    iks.push_back({ UpperArmR, LowerArmR, vec3(0,-1,0) }); iks.back().Init();
+
+    _local.assign(pose.size(), vec3(0));
+    for (auto j : ipose)
+    {
+        _local[j.y] = pose[j.y] - pose[j.x];
+    }
+
+    printf("pose.size(): %ld, ipose.size(): %ld\n", pose.size(), ipose.size());
+
+    static GLuint vbo, ebo, frame=0;
+    if (!frame++)
+    {
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ebo);
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, pose.size() * sizeof pose[0], pose.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ipose.size() * sizeof ipose[0], ipose.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(8);
+    glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, 12, 0);
+    glPointSize(4.0);
+    glLineWidth(2.0);
+
+    return (pose.size() << 8) | ipose.size() * 2;
+}
+
 extern "C" int mainAnimation(float t)
 {
-    t = sin(t*3.0)*0.17 + 0.7;
-    vec3 ta = vec3(0,0,0);
-    vec3 ro = ta + vec3(sin(t),0.3,cos(t))*1.5f;
+//        t *= .5;
+    //t = sin(t*3.0)*0.17 + 0.1;
+    float m = .6;//t;
+    vec3 ta = vec3(0,1,0);
+    vec3 ro = ta + vec3(sin(m),.3,cos(m))*1.5f;
+
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
+
+#if 0
+    pose[iks[1].p].y = (sin(t)*.5+.5) * .5;
+    pose[iks[2].p].y = (sin(t)*.5+.5) * .5;
+    pose[iks[3].p].x = -.7 + (sin(t)*.5+.5) * .2;
+    pose[iks[4].p].x = .7 - (sin(t)*.5+.5) * .2;
+
+    for (auto &ik : iks)
+    {
+        pose[ik.x] = pose[ik.o] + solve(pose[ik.p]-pose[ik.o], ik.r1, ik.r2, ik.dir);
+        swi[ik.o] = rotationAlign(pose[ik.x]-pose[ik.o], vec3(0,0,-1));
+        swi[ik.x] = rotationAlign(pose[ik.p]-pose[ik.x], vec3(0,0,-1));
+    }
+#endif
+
+    vector<mat3> swi(pose.size(), mat3(1)); // global rotation
+    pose[iks[0].p].y = shdHei - (sin(t)*.5+.5) * .2;
+    Ik2b ik = iks[0];
+    pose[ik.x] = pose[ik.o] + solve(pose[ik.p]-pose[ik.o], ik.r1, ik.r2, ik.dir);
+    swi[ik.o] = rotationAlign(normalize(pose[ik.x]-pose[ik.o]), vec3(0,1,0));
+    swi[ik.x] = rotationAlign(normalize(pose[ik.p]-pose[ik.x]), vec3(0,1,0));
+
+    // fk
+    pose.assign(pose.size(), vec3(0));
+    for (int i=0; i<ipose.size(); i++)
+    {
+        uvec2 j = ipose[i];
+        pose[j.y] = _local[j.y]*swi[j.x] + pose[j.x];
+//        swi[j.y] *= swi[j.x];
+    }
+
+    glBufferSubData(GL_ARRAY_BUFFER, 0, pose.size() * sizeof pose[0], pose.data());
     return 0;
 }

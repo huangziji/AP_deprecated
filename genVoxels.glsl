@@ -14,12 +14,13 @@ float sdTorus( vec3 p, vec2 t )
 float map(vec3 pos)
 {
     float d = sdBox(pos, .5) - .02;
-    float d2 = sdTorus(pos, vec2(.5,.2));
-    return max(-d, d2);
+    float d2 = sdTorus(pos, vec2(.65,.2));
+    //d = max(-d, d2);
+    return d2;
 }
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
-layout (binding = 2, r8) writeonly uniform image3D outImage;
+layout (binding = 3, r8) writeonly uniform image3D outImage;
 void main()
 {
     vec3 off = vec3(.8), sca = off*2./64.;
