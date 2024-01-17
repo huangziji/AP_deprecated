@@ -11,14 +11,11 @@ find_package(glm   REQUIRED)
 find_package(Boost REQUIRED)
 find_package(OpenAL REQUIRED)
 
-add_definitions(-DALSOFT_LOGLEVEL=3)
 add_definitions(-DGLFW_INCLUDE_NONE)
 #file(COPY base.frag base.glsl DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 add_executable(${PROJECT_NAME} main.cpp)
 target_link_libraries(${PROJECT_NAME} glfw glad openal Common)
 target_link_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-add_library(Common SHARED common.cpp
-        common.glsl base.frag base.glsl line.glsl
-        genVoxels.glsl renderVoxels.glsl)
+add_library(Common SHARED common.cpp common.glsl base.frag base.glsl line.glsl)
 add_library(Module SHARED module.cpp)

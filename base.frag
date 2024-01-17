@@ -12,23 +12,6 @@ float sdTorus( vec3 p, vec2 t )
   return length(q)-t.y;
 }
 
-// axis aligned box centered at the origin, with size boxSize
-vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
-{
-    vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
-    vec3 n = m*ro;   // can precompute if traversing a set of aligned boxes
-    vec3 k = abs(m)*boxSize;
-    vec3 t1 = -n - k;
-    vec3 t2 = -n + k;
-    float tN = max( max( t1.x, t1.y ), t1.z );
-    float tF = min( min( t2.x, t2.y ), t2.z );
-    if( tN>tF || tF<0.0) return vec2(-1.0); // no intersection
-    outNormal = (tN>0.0) ? step(vec3(tN),t1) : // ro ouside the box
-                           step(t2,vec3(tF));  // ro inside the box
-    outNormal *= -sign(rd);
-    return vec2( tN, tF );
-}
-
 //============================================================//
 
 vec2 map(vec3 pos)
@@ -56,13 +39,9 @@ vec3 calcNormal(vec3 pos)
                      e.xxx*map( pos + e.xxx ).x );
 }
 
-#define saturate(x) clamp(x,0.,1.)
 out vec4 fragColor;
 void main()
 {
-    //fragColor = texture(iChannel2, gl_FragCoord.xy/iResolution.xy);
-    //return;
-
     vec3 ro = _ro, ta = _ta;
     vec2 uv = (2.0*gl_FragCoord.xy-iResolution.xy)/iResolution.y;
     mat3 ca = setCamera(ro, ta, 0.0);
@@ -103,6 +82,7 @@ void main()
             mate = vec3(0.5,0.6,0.7);
         }
 
+#define saturate(x) clamp(x,0.,1.)
         const vec3 sun_dir = normalize(vec3(1,2,3));
         float sun_dif = saturate(dot(nor, sun_dir))*.9+.1;
         float sky_dif = saturate(dot(nor, vec3(0,1,0)))*.15;

@@ -5,6 +5,28 @@
 using boost::container::vector;
 using namespace glm;
 
+mat3x3 rotationAlign( vec3 d, vec3 z )
+{
+    vec3  v = cross( z, d );
+    float c = dot( z, d );
+    float k = 1.0f/(1.0f+c);
+
+    return mat3x3( v.x*v.x*k + c,     v.y*v.x*k - v.z,    v.z*v.x*k + v.y,
+                   v.x*v.y*k + v.z,   v.y*v.y*k + c,      v.z*v.y*k - v.x,
+                   v.x*v.z*k - v.y,   v.y*v.z*k + v.x,    v.z*v.z*k + c    );
+}
+
+vec3 solve( vec3 p, float r1, float r2, vec3 dir )
+{
+        vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
+
+        float s = r1*r1 - dot(q,q);
+        s = max( s, 0.0f );
+        q += sqrt(s)*normalize(cross(p,dir));
+
+        return q;
+}
+
 float sdBox( vec3 p, float b )
 {
     vec3 q = abs(p) - b;
@@ -189,7 +211,8 @@ int sdf2poly(Geometry &geom, uvec3 id, uint Res)
 
     float d[8]; // density
     int mask = 0;
-    for (int i=0; i<8; i++) {
+    for (int i=0; i<8; i++)
+    {
         d[i] = map( (vec3(id)+vertmap[i])*sca + off );
         mask |= (d[i] > 0) << i;
     }
@@ -199,7 +222,8 @@ int sdf2poly(Geometry &geom, uvec3 id, uint Res)
 
     int n_edges = 0;
     vec3 ce = vec3(0);
-    for (int i=0; i<12; i++) {
+    for (int i=0; i<12; i++)
+    {
         int  a = edgevmap[i][0];
         int  b = edgevmap[i][1];
         int m1 = (mask >> a) & 1;
@@ -221,7 +245,8 @@ int sdf2poly(Geometry &geom, uvec3 id, uint Res)
         return 1;
 
     const int axismap[] = { 1, Size, Size*Size, 1, Size }; // wrap
-    for (int i=0; i<3; i++) { // 3 basis axes
+    for (int i=0; i<3; i++)
+    {
         const int lvl = 1 << i;
         const int m1 = mask & 1;
         const int m2 = (mask >> lvl) & 1;
@@ -283,49 +308,6 @@ Vertex CubeMap2Capsule(vec3 uv)
     return { pos, nor };
 }
 
-int loadShader3(GLuint, const char*);
-
-extern "C" int mainGeometry()
-{
-    static Geometry geom;
-    geom.Clear();
-    static GLuint prog1, tex1, frame = 0;
-    if (!frame++)
-    {
-        geom.Init();
-        prog1 = glCreateProgram();
-
-        const int Size = 64;
-        glGenTextures(1, &tex1);
-        glBindTexture(GL_TEXTURE_3D, tex1);
-        glTexStorage3D(GL_TEXTURE_3D, 5, GL_R8, Size,Size,Size);
-        glBindTexture(GL_TEXTURE_3D, 0);
-    }
-
-    {
-        int err = loadShader3(prog1, "../genVoxels.glsl");
-        glBindImageTexture(3, tex1, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8);
-        glUseProgram(prog1);
-        glDispatchCompute(8,8,8);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_3D, tex1);
-        glGenerateMipmap(GL_TEXTURE_3D);
-    }
-
-
-//    // TODO: polygonize in octree
-//    const int Res = 1<<6;
-//    for (int z=0; z<Res; z++)
-//        for (int y=0; y<Res; y++)
-//            for (int x=0; x<Res; x++)
-//                sdf2poly(geom, {x,y,z}, Res);
-
-    geom.EndPrimitive();
-    return geom.C.size();
-}
-
 typedef enum {
     Root,
     Hips,
@@ -336,6 +318,7 @@ typedef enum {
     UpperLegL, UpperLegR,
     LowerLegL, LowerLegR,
 } IkRig;
+
 static const float shdHei = 1.6, hipHei = 1.0;
 static vector<uvec2> ipose;
 static vector<vec3> pose = {
@@ -349,29 +332,7 @@ static vector<vec3> pose = {
     vec3(-.2,     0,0), vec3(.2,     0,0), // lower legs
 };
 
-mat3x3 rotationAlign( vec3 d, vec3 z )
-{
-    vec3  v = cross( z, d );
-    float c = dot( z, d );
-    float k = 1.0f/(1.0f+c);
-
-    return mat3x3( v.x*v.x*k + c,     v.y*v.x*k - v.z,    v.z*v.x*k + v.y,
-                   v.x*v.y*k + v.z,   v.y*v.y*k + c,      v.z*v.y*k - v.x,
-                   v.x*v.z*k - v.y,   v.y*v.z*k + v.x,    v.z*v.z*k + c    );
-}
-
-vec3 solve( vec3 p, float r1, float r2, vec3 dir )
-{
-        vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
-
-        float s = r1*r1 - dot(q,q);
-        s = max( s, 0.0f );
-        q += sqrt(s)*normalize(cross(p,dir));
-
-        return q;
-}
-
-struct Ik2b
+struct SimpleIk
 {
     int o, p;
     vec3 dir;
@@ -391,18 +352,10 @@ struct Ik2b
     }
 };
 
-typedef struct {
-    int o, p;
-    vec3 dir;
-
-    int x, n;
-    float r; // uniform length joints
-} Ik2d;
-
-static vector<Ik2b> iks;
+static vector<SimpleIk> iks;
 static vector<vec3> _local;
 
-extern "C" int mainGUI(void)
+extern "C" int mainGeometry()
 {
     ipose.push_back({Root, Hips});
     ipose.push_back({Hips,UpperLegL});
@@ -424,9 +377,8 @@ extern "C" int mainGUI(void)
 
     printf("pose.size(): %ld, ipose.size(): %ld\n", pose.size(), ipose.size());
 
-    static GLuint vbo, ebo, frame=0;
-    if (!frame++)
-    {
+    static GLuint vbo, ebo, frame = 0;
+    if (!frame++) {
         glGenBuffers(1, &vbo);
         glGenBuffers(1, &ebo);
     }
@@ -441,19 +393,37 @@ extern "C" int mainGUI(void)
     glLineWidth(2.0);
 
     return (pose.size() << 8) | ipose.size() * 2;
+
+    static Geometry geom;
+    geom.Init();
+    geom.Clear();
+
+//    // TODO: polygonize in octree
+    const int Res = 1<<5;
+    for (int z=0; z<Res; z++)
+        for (int y=0; y<Res; y++)
+            for (int x=0; x<Res; x++)
+                sdf2poly(geom, {x,y,z}, Res);
+
+    GenerateNormals(geom);
+    geom.EmitVertex();
+    geom << Instance{vec3(1), vec3(0,1,0), {}, vec3(0, 1, 0) };
+    geom.EndPrimitive();
+    return geom.C.size();
 }
 
 extern "C" int mainAnimation(float t)
 {
-//        t *= .5;
+//            t *= .5;
     //t = sin(t*3.0)*0.17 + 0.1;
-    float m = .6;//t;
+    float m = t;
     vec3 ta = vec3(0,1,0);
     vec3 ro = ta + vec3(sin(m),.3,cos(m))*1.5f;
 
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
 
+    return 0;
 #if 0
     pose[iks[1].p].y = (sin(t)*.5+.5) * .5;
     pose[iks[2].p].y = (sin(t)*.5+.5) * .5;
@@ -470,7 +440,7 @@ extern "C" int mainAnimation(float t)
 
     vector<mat3> swi(pose.size(), mat3(1)); // global rotation
     pose[iks[0].p].y = shdHei - (sin(t)*.5+.5) * .2;
-    Ik2b ik = iks[0];
+    SimpleIk ik = iks[0];
     pose[ik.x] = pose[ik.o] + solve(pose[ik.p]-pose[ik.o], ik.r1, ik.r2, ik.dir);
     swi[ik.o] = rotationAlign(normalize(pose[ik.x]-pose[ik.o]), vec3(0,1,0));
     swi[ik.x] = rotationAlign(normalize(pose[ik.p]-pose[ik.x]), vec3(0,1,0));

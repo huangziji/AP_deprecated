@@ -1,8 +1,6 @@
 precision mediump float;
-precision mediump sampler3D;
 
-uniform sampler2D iChannel0, iChannel1, iChannel2;
-uniform sampler3D iChannel3;
+uniform sampler2D iChannel0, iChannel1;
 
 layout (std140) uniform INPUT {
     vec2 iResolution; float iTime, _pad1;
