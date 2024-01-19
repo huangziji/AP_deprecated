@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     glfwSetJoystickCallback(joystick_callback);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_SAMPLES, 4);
 //    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
     { // window1
@@ -184,11 +185,12 @@ int main(int argc, char *argv[])
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-        if (drawCount > 0)
-        {
-            glUseProgram(prog3);
-            glDrawElements(GL_LINES, drawCount & 0xff, GL_UNSIGNED_INT, NULL);
-            glDrawArrays(GL_POINTS, 0, drawCount >> 8);
+        { // draw bones
+            static long lastModTime4;
+            static GLuint prog4 = glCreateProgram();
+            loadShaderB(&lastModTime4, prog4, "../bone.glsl");
+            glUseProgram(prog4);
+            glDrawArraysInstanced(GL_LINES, 0, 18, drawCount);
         }
 
         glfwSwapBuffers(window1);

@@ -52,8 +52,14 @@ float map(vec3 pos)
     return d1;
 }
 
-typedef struct { vec3 pos, nor; } Vertex;
-typedef struct { vec3 sca, ce, off, swi; } Instance;
+typedef struct {
+    vec3 pos, nor;
+}Vertex;
+
+typedef struct {
+    vec3 off, swi;
+}Instance;
+
 typedef struct {
     GLuint count;
     GLuint instanceCount;
@@ -107,21 +113,14 @@ struct Geometry
         glBindBuffer(GL_ARRAY_BUFFER, ibo);
         glBufferData(GL_ARRAY_BUFFER, I.size()*sizeof I[0], I.data(), GL_STATIC_DRAW);
         glEnableVertexAttribArray(4);
-        glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 48, 0);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, 24, 0);
         glVertexAttribDivisor(4, 1);
         glEnableVertexAttribArray(5);
-        glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, 48, (void*)12);
+        glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, 24, (void*)16);
         glVertexAttribDivisor(5, 1);
-        glEnableVertexAttribArray(6);
-        glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, 48, (void*)24);
-        glVertexAttribDivisor(6, 1);
-        glEnableVertexAttribArray(7);
-        glVertexAttribPointer(7, 3, GL_FLOAT, GL_FALSE, 48, (void*)36);
-        glVertexAttribDivisor(7, 1);
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size()*sizeof F[0], F.data(), GL_STATIC_DRAW);
-
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
         glBufferData(GL_DRAW_INDIRECT_BUFFER, C.size()*sizeof C[0], C.data(), GL_STATIC_DRAW);
     }
@@ -312,148 +311,124 @@ typedef enum {
     Root,
     Hips,
     Neck,
-    Head,
     UpperArmL, UpperArmR,
     LowerArmL, LowerArmR,
     UpperLegL, UpperLegR,
     LowerLegL, LowerLegR,
+//    Head,
 } IkRig;
-
-static const float shdHei = 1.6, hipHei = 1.0;
-static vector<uvec2> ipose;
-static vector<vec3> pose = {
-    vec3(0),
-    vec3( 0,hipHei,0), // hip
-    vec3( 0,shdHei,0), // neck
-    vec3( 0,  1.75,0), // head
-    vec3(-.2,shdHei,0), vec3(.2,shdHei,0), // upper arms
-    vec3(-.7,shdHei,0), vec3(.7,shdHei,0), // lower arms
-    vec3(-.2,hipHei,0), vec3(.2,hipHei,0), // upper legs
-    vec3(-.2,     0,0), vec3(.2,     0,0), // lower legs
-};
 
 struct SimpleIk
 {
     int o, p;
     vec3 dir;
-
     int x;
     float r1, r2;
-
-    void Init()
-    {
-        r1 = length(pose[p]-pose[o]) * .5;
-        r2 = r1;
-        x = pose.size();
-        pose.push_back({});
-        ipose.push_back({o, x});
-        ipose.push_back({x, p});
-        pose[x] = pose[o] + solve(pose[p]-pose[o], r1, r2, dir);
-    }
 };
 
-static vector<SimpleIk> iks;
-static vector<vec3> _local;
+template<class T> vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
+template<class T> vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
+
+typedef struct {
+    int parentIndex;
+    vec3 localPosition;
+}Node;
+
+static vector<Node> sceneGraph;
 
 extern "C" int mainGeometry()
 {
-    ipose.push_back({Root, Hips});
-    ipose.push_back({Hips,UpperLegL});
-    ipose.push_back({Hips,UpperLegR});
-    iks.push_back({ Hips, Neck, vec3(1,0,0) }); iks.back().Init();
-    ipose.push_back({Neck,UpperArmL});
-    ipose.push_back({Neck,UpperArmR});
-    ipose.push_back({Neck,Head});
-    iks.push_back({ UpperLegL, LowerLegL, vec3( 1,0,0) }); iks.back().Init();
-    iks.push_back({ UpperLegR, LowerLegR, vec3( 1,0,0) }); iks.back().Init();
-    iks.push_back({ UpperArmL, LowerArmL, vec3(0, 1,0) }); iks.back().Init();
-    iks.push_back({ UpperArmR, LowerArmR, vec3(0,-1,0) }); iks.back().Init();
+    vector<vec3> joints;
+    vector<int> parents;
+    const float heaHei = 1.75, shdHei = 1.6, hipHei = 1.1;
+    joints <<
+        vec3(0),
+        vec3(0,hipHei,0),
+        vec3(0,shdHei,0),
+        vec3(0,heaHei,0),
+        vec3(-.2,shdHei,0),vec3(.2,shdHei,0),
+        vec3(-.7,shdHei,0),vec3(.7,shdHei,0),
+        vec3(-.15,hipHei,0),vec3(.15,hipHei,0),
+        vec3(-.15,0,0),vec3(.15,0,0);
 
-    _local.assign(pose.size(), vec3(0));
-    for (auto j : ipose)
+    parents << 0, 1, 2, 2, 2, 4, 5, 1, 1, 8, 9;
+
+    int idx = 1;
+    vector<Instance> I;
+    for (auto p : parents)
     {
-        _local[j.y] = pose[j.y] - pose[j.x];
+        sceneGraph << Node{ p, joints[idx++]-joints[p] };
+        I << Instance{};
     }
 
-    printf("pose.size(): %ld, ipose.size(): %ld\n", pose.size(), ipose.size());
 
-    static GLuint vbo, ebo, frame = 0;
+    static GLuint vbo, frame = 0;
     if (!frame++) {
+//        glLineWidth(1.0);
         glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ebo);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, pose.size() * sizeof pose[0], pose.data(), GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ipose.size() * sizeof ipose[0], ipose.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(8);
-    glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, 12, 0);
-    glPointSize(4.0);
-    glLineWidth(2.0);
+    glBufferData(GL_ARRAY_BUFFER, I.size() * sizeof I[0], I.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, 24, 0);
+    glVertexAttribDivisor(4, 1);
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, 24, (void*)12);
+    glVertexAttribDivisor(5, 1);
 
-    return (pose.size() << 8) | ipose.size() * 2;
-
-    static Geometry geom;
-    geom.Init();
-    geom.Clear();
-
-//    // TODO: polygonize in octree
-    const int Res = 1<<5;
-    for (int z=0; z<Res; z++)
-        for (int y=0; y<Res; y++)
-            for (int x=0; x<Res; x++)
-                sdf2poly(geom, {x,y,z}, Res);
-
-    GenerateNormals(geom);
-    geom.EmitVertex();
-    geom << Instance{vec3(1), vec3(0,1,0), {}, vec3(0, 1, 0) };
-    geom.EndPrimitive();
-    return geom.C.size();
+    return I.size();
 }
+
+mat3 rotateX(float a)
+{
+    float c=cos(a), s=sin(a);
+    return mat3(1, 0, 0,
+                0, c, s,
+                0, -s, c);
+}
+mat3 rotateY(float a)
+{
+    float c=cos(a), s=sin(a);
+    return mat3(c, 0, s,
+                0, 1, 0,
+                -s, 0, c);
+}
+mat3 rotateZ(float a)
+{
+    float c=cos(a), s=sin(a);
+    return mat3(c, s, 0,
+                -s, c, 0,
+                0, 0, 1);
+}
+
 
 extern "C" int mainAnimation(float t)
 {
-//            t *= .5;
     //t = sin(t*3.0)*0.17 + 0.1;
-    float m = t;
     vec3 ta = vec3(0,1,0);
+    float m = 1.;//t;
     vec3 ro = ta + vec3(sin(m),.3,cos(m))*1.5f;
-
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
 
-    return 0;
-#if 0
-    pose[iks[1].p].y = (sin(t)*.5+.5) * .5;
-    pose[iks[2].p].y = (sin(t)*.5+.5) * .5;
-    pose[iks[3].p].x = -.7 + (sin(t)*.5+.5) * .2;
-    pose[iks[4].p].x = .7 - (sin(t)*.5+.5) * .2;
-
-    for (auto &ik : iks)
-    {
-        pose[ik.x] = pose[ik.o] + solve(pose[ik.p]-pose[ik.o], ik.r1, ik.r2, ik.dir);
-        swi[ik.o] = rotationAlign(pose[ik.x]-pose[ik.o], vec3(0,0,-1));
-        swi[ik.x] = rotationAlign(pose[ik.p]-pose[ik.x], vec3(0,0,-1));
-    }
-#endif
-
-    vector<mat3> swi(pose.size(), mat3(1)); // global rotation
-    pose[iks[0].p].y = shdHei - (sin(t)*.5+.5) * .2;
-    SimpleIk ik = iks[0];
-    pose[ik.x] = pose[ik.o] + solve(pose[ik.p]-pose[ik.o], ik.r1, ik.r2, ik.dir);
-    swi[ik.o] = rotationAlign(normalize(pose[ik.x]-pose[ik.o]), vec3(0,1,0));
-    swi[ik.x] = rotationAlign(normalize(pose[ik.p]-pose[ik.x]), vec3(0,1,0));
+    vector<mat3> rotations(sceneGraph.size()+1, mat3(1));
+    rotations[4] = rotateZ(-1.);
+    rotations[5] = rotateZ(1.);
 
     // fk
-    pose.assign(pose.size(), vec3(0));
-    for (int i=0; i<ipose.size(); i++)
+    int idx = 1;
+    vector<Instance> U;
+    vector<vec3> positions(sceneGraph.size()+1, vec3(0));
+    for (auto n : sceneGraph)
     {
-        uvec2 j = ipose[i];
-        pose[j.y] = _local[j.y]*swi[j.x] + pose[j.x];
-//        swi[j.y] *= swi[j.x];
+        int p = n.parentIndex;
+        positions[idx] = positions[p] + n.localPosition * rotations[p];
+        rotations[idx] = rotations[idx] * rotations[p];
+        idx += 1;
+        U << Instance{ positions[p], n.localPosition * rotations[p] };
     }
 
-    glBufferSubData(GL_ARRAY_BUFFER, 0, pose.size() * sizeof pose[0], pose.data());
+    glBufferSubData(GL_ARRAY_BUFFER, 0, U.size() * sizeof U[0], U.data());
     return 0;
 }
