@@ -4,6 +4,8 @@
 #include <assert.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
+#include <AL/al.h>
+#include <AL/alc.h>
 
 static void error_callback(int _, const char* desc)
 {
@@ -21,6 +23,50 @@ static void joystick_callback(int jid, int event)
 
 int main(int argc, char *argv[])
 {
+    const char *name = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
+    ALCdevice *dev = alcOpenDevice(name);
+
+    ALuint buffer, source;
+    if (dev)
+    {
+        printf("INFO: initialized device %s\n", name);
+        ALCcontext *ctx = alcCreateContext(dev, NULL);
+        alcMakeContextCurrent(ctx);
+
+        uint8_t data[128];
+        for (int i=0; i<128; i++) data[i]=i;
+        alGenBuffers(1, &buffer);
+        alBufferData(buffer, AL_FORMAT_STEREO8, data, sizeof data, 44100);
+
+        alGenSources(1, &source);
+        alSourcef(source, AL_GAIN, 1.0);
+        alSourcef(source, AL_PITCH, 1.0);
+        alSourcei(source, AL_LOOPING, 0);
+
+        alListener3f(AL_POSITION, 0,0,0);
+        alListener3f(AL_VELOCITY, 0,0,0);
+        alSource3f(source, AL_POSITION, 0,0,0);
+
+        alSourceQueueBuffers(source, 1, &buffer);
+        alSourceUnqueueBuffers(source, 0, &buffer);
+        alSourcei(source, AL_BUFFER, buffer);
+        alSourcePlay(source);
+        alSourceStop(source);
+        alSourcePause(source);
+
+        int bufferProcessed;
+        alGetSourcei(source, AL_BUFFERS_PROCESSED, &bufferProcessed);
+//        alDistanceModel()
+//        alDopplerFactor()
+//        alDopplerVelocity()
+
+        int err = alGetError();
+        if (err) fprintf(stderr, "ERROR: %x\n", err);
+        alcMakeContextCurrent(NULL);
+        alcDestroyContext(ctx);
+        alcCloseDevice(dev);
+    }
+
     const int RES_X = 16*40, RES_Y = 9*40;
     GLFWwindow *window1;
 
@@ -45,9 +91,8 @@ int main(int argc, char *argv[])
 //        glfwSwapInterval(0);
     }
 
-    GLuint bufferA;
+    GLuint bufferA, tex1, tex2;
     {
-        GLuint tex1, tex2;
         glGenTextures(1, &tex1);
         glBindTexture(GL_TEXTURE_2D, tex1);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_X, RES_Y);
@@ -63,11 +108,6 @@ int main(int argc, char *argv[])
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex1);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, tex2);
-
         GLuint vao;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
@@ -80,10 +120,12 @@ int main(int argc, char *argv[])
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
     }
 
-    typedef int (plugFunction1)(float);
-    typedef int (plugFunction2)(void);
+    typedef struct{ int x, y; }ivec2;
+    typedef void (plugFunction1)(float);
+    typedef ivec2 (plugFunction2)(void);
     plugFunction1 *mainAnimation = NULL;
     plugFunction2 *mainGeometry, *mainGUI;
+    ivec2 ret = {};
 
     int loadShader1(GLuint, const char*);
     int loadShader2(GLuint, const char*);
@@ -93,10 +135,7 @@ int main(int argc, char *argv[])
 
     const GLuint prog1 = glCreateProgram();
     const GLuint prog2 = glCreateProgram();
-    const GLuint prog3 = glCreateProgram();
-    assert(0 == loadShader2(prog3, "../line.glsl"));
 
-    GLint enableWireFrame;
     long lastModTime1, lastModTime2, lastModTime3;
     float fps, lastFrameTime = 0;
     uint32_t iFrame = 0;
@@ -108,23 +147,20 @@ int main(int argc, char *argv[])
         float dt = iTime - lastFrameTime; lastFrameTime = iTime;
         if ((iFrame & 0xf) == 0) fps = 1./dt;
         char title[32];
-        sprintf(title, "%4.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
+        sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
         glfwSetWindowTitle(window1, title);
         glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &iTime);
 
-        int dirty1 = loadShaderA(&lastModTime1, prog1, "../base.frag");
-        int dirty2 = loadShaderB(&lastModTime2, prog2, "../base.glsl");
+        loadShaderB(&lastModTime2, prog2, "../AnimationPlayer/base.glsl");
+        int dirty1 = loadShaderA(&lastModTime1, prog1, "../AnimationPlayer/base.frag");
         if (dirty1)
         {
             GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
             glProgramUniform1i(prog1, iChannel1, 1);
-        }
-        if (dirty2)
-        {
-            enableWireFrame = glGetUniformLocation(prog2, "enableWireFrame");
+            GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
+            glProgramUniform1i(prog1, iChannel2, 2);
         }
 
-        static int drawCount = 0;
         {
 //        loadLibrary(&lastModTime3, handle, libraryFilename);
             static void *libraryHandle = NULL;
@@ -148,7 +184,7 @@ int main(int argc, char *argv[])
                     mainAnimation = (plugFunction1*)dlsym(libraryHandle, "mainAnimation");
                     assert(mainAnimation);
                     mainGeometry = (plugFunction2*)dlsym(libraryHandle, "mainGeometry");
-                    if (mainGeometry) drawCount = mainGeometry();
+                    if (mainGeometry) ret = mainGeometry();
                 }
                 else
                 {
@@ -168,14 +204,21 @@ int main(int argc, char *argv[])
         glBindFramebuffer(GL_FRAMEBUFFER, bufferA);
         glViewport(0,0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        glUseProgram(prog2);
+        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
 
-        if (0)
         {
-            glUseProgram(prog2);
-            glProgramUniform1f(prog2, enableWireFrame, 0);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, 0, 0);
+            static long lastModTime3;
+            static const GLuint prog3 = glCreateProgram();
+            loadShaderB(&lastModTime3, prog3, "../AnimationPlayer/line.glsl");
+            glUseProgram(prog3);
+            glDrawArrays(GL_LINES, 0, ret.y);
         }
 
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, tex2);
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
@@ -184,14 +227,6 @@ int main(int argc, char *argv[])
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(prog1);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-        { // draw bones
-            static long lastModTime4;
-            static GLuint prog4 = glCreateProgram();
-            loadShaderB(&lastModTime4, prog4, "../bone.glsl");
-            glUseProgram(prog4);
-            glDrawArraysInstanced(GL_LINES, 0, 18, drawCount);
-        }
 
         glfwSwapBuffers(window1);
         glfwPollEvents();

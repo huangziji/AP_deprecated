@@ -1,0 +1,8 @@
+[requires]
+imgui/1.90.1
+physx/4.1.1
+libalsa/1.2.10
+
+[generators]
+CMakeDeps
+CMakeToolchain
