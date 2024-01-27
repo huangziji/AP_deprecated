@@ -167,7 +167,7 @@ int loadShader3(GLuint prog, const char *filename)
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
-GLuint loadTexture(const char *filename)
+int loadTexture(GLuint tex, const char *filename)
 {
     int w, h, c;
     uint8_t *data = stbi_load(filename, &w, &h, &c, STBI_rgb);
@@ -177,12 +177,72 @@ GLuint loadTexture(const char *filename)
         return 0;
     }
 
-    GLuint tex;
-    glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, w,h);
     glTexSubImage2D(GL_TEXTURE_2D, 0,0,0, w,h, GL_RGB, GL_UNSIGNED_BYTE, data);
     glBindTexture(GL_TEXTURE_2D, 0);
     stbi_image_free(data);
-    return tex;
+    return 1;
+}
+
+#include <AL/al.h>
+#include <AL/alc.h>
+
+bool alInit()
+{
+    const char *name = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
+    ALCdevice *dev = alcOpenDevice(name);
+    if (dev)
+    {
+        printf("INFO: %s initialized\n", name);
+        ALCcontext *ctx = alcCreateContext(dev, NULL);
+        alcMakeContextCurrent(ctx);
+    }
+    return dev != NULL;
+}
+
+void alClose()
+{
+    ALCcontext *ctx = alcGetCurrentContext();
+    ALCdevice *dev = alcGetContextsDevice(ctx);
+    int err = alGetError();
+    if (err) fprintf(stderr, "ERROR: %x\n", err);
+    alcMakeContextCurrent(NULL);
+    alcDestroyContext(ctx);
+    alcCloseDevice(dev);
+}
+
+void alUpdate(float time)
+{
+    static ALuint source, buffer, frame = 0;
+    if (frame++ == 0)
+    {
+        alInit();
+        alGenBuffers(1, &buffer);
+        alGenSources(1, &source);
+        alSourcef(source, AL_GAIN, 1.0);
+        alSourcef(source, AL_PITCH, 1.0);
+        alSourcei(source, AL_LOOPING, 0);
+        alSource3f(source, AL_POSITION, 0,0,0);
+        alListener3f(AL_POSITION, 0,0,0);
+        alListener3f(AL_VELOCITY, 0,0,0);
+    }
+
+#if 0
+    static uint8_t data[1024];
+    for (int i=0; i<sizeof data / sizeof *data; i++)
+    {
+        float o = sin(6.2831*440.0*time)*exp(-3.0*time);
+        data[i] = 0x7f + int(clamp(o,0.f,1.f) * 0xff);
+    }
+    alBufferData(buffer, AL_FORMAT_MONO8, data, sizeof data, 44100);
+#endif
+
+//    int processed;
+//    alGetSourcei(source, AL_BUFFERS_PROCESSED, &processed);
+//    alSourceUnqueueBuffers(source, 1, &buffer);
+//    alSourceQueueBuffers(source, 1, &buffer);
+
+    alSourcei(source, AL_BUFFER, buffer);
+    alSourcePlay(source);
 }

@@ -16,6 +16,61 @@ mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
     return mat3(cu, cv, cw);
 }
 
+vec2 matcap(vec3 eye, vec3 normal)
+{
+    vec3 reflected = reflect(eye, normal);
+    float m = 2.8284271247461903 * sqrt( reflected.z+1.0 );
+    return reflected.xy / m + 0.5;
+}
+
+vec3 Decode( vec2 f )
+{
+    f = f * 2.0 - 1.0;
+
+    // https://twitter.com/Stubbesaurus/status/937994790553227264
+    vec3 n = vec3( f.x, f.y, 1.0 - abs( f.x ) - abs( f.y ) );
+    float t = max( -n.z, 0.0 );
+    n.xy -= sign(n.xy) * t;
+    return normalize( n );
+}
+
+mat4 ortho(float l, float r, float b, float t, float n, float f)
+{
+    return mat4(
+                2./(r-l),0,0,0,
+                0,2./(t-b),0,0,
+                0,0,2./(n-f),0,
+                -(r+l)/(r-l),
+                -(t+b)/(t-b),
+                -(f+n)/(f-n),
+                1.);
+}
+
+vec4 World2Clip(vec3 pos)
+{
+    float r = 1.5;
+    mat3 ca = setCamera(vec3(0), normalize(vec3(1,2,3)), 0.);
+    return ortho(-r,r,-r,r,-r,r) * vec4(pos*ca, 1.);
+}
+
+precision mediump sampler2DShadow;
+uniform sampler2DShadow iChannel3;
+float calcShadow(vec3 pos)
+{
+    float inShadow = 0.0;
+    float count    = 0.0;
+    vec2 mapSize = vec2(textureSize(iChannel3, 0));
+    vec4 shadowPos = World2Clip(pos) * 0.5 + 0.5;
+    for (int si = -2; si <= 2; ++si)
+    for (int sj = -2; sj <= 2; ++sj)
+    {
+        count += 1.0;
+        inShadow += textureProj( iChannel3, shadowPos + vec4(vec2(si,sj)/mapSize, vec2(-0.007,0.005)) );
+    }
+
+    return inShadow/count;
+}
+
 float sdBox(vec3 pos, float b)
 {
     vec3 q = abs(pos) - b;
@@ -40,7 +95,7 @@ float smin( float a, float b, float k )
 vec2 map(vec3 pos)
 {
     float d1, d2;
-    d1 = pos.y + 1.;
+    d1 = pos.y;
     float id = 2.;
 //    d2 = length(pos-vec3(0,1,0)) - .1;
 //    if (d2 < d1) { d1=d2; id=1.; }
@@ -48,13 +103,6 @@ vec2 map(vec3 pos)
 //    d1 = smin(d1,d2,.2);
 
     return vec2(d1, id);
-}
-
-vec2 matcap(vec3 eye, vec3 normal)
-{
-    vec3 reflected = reflect(eye, normal);
-    float m = 2.8284271247461903 * sqrt( reflected.z+1.0 );
-    return reflected.xy / m + 0.5;
 }
 
 vec3 calcNormal(vec3 pos)
@@ -66,23 +114,28 @@ vec3 calcNormal(vec3 pos)
                      e.xxx*map( pos + e.xxx ).x );
 }
 
+precision mediump sampler2DArray;
 const float fov = 1.2;
-uniform sampler2D iChannel0, iChannel1, iChannel2;
+uniform sampler2D iChannel0, iChannel2;
+uniform sampler2DArray iChannel1;
 out vec4 fragColor;
 void main()
 {
+    vec2 screenUV = gl_FragCoord.xy/iResolution.xy;
+    vec4 gBuffer1 = texture(iChannel1, vec3(screenUV, 0));
+//    fragColor = texture( iChannel3, vec4(screenUV, vec2(0.0)).rg );
+
     vec3 ro = _ro, ta = _ta;
     vec2 uv = (2.0*gl_FragCoord.xy-iResolution.xy)/iResolution.y;
     mat3 ca = setCamera(ro, ta, 0.0);
     vec3 rd = ca * normalize(vec3(uv, fov));
 
     // compute rasterized polygon depth in world space
-    float dep = texture(iChannel0, gl_FragCoord.xy/iResolution.xy).r   *2.0-1.0;
-    vec3  nor = texture(iChannel1, gl_FragCoord.xy/iResolution.xy).rgb *2.0-1.0;
+    float dep = texture(iChannel0, screenUV).r *2.0-1.0;
+    vec3 nor = Decode(gBuffer1.rg);
     const float n = 0.1, f = 1000.0;
     const float p10 = (f+n)/(f-n), p11 = -2.0*f*n/(f-n); // from perspective matrix
         dep = p11 / ( (dep-p10) * dot(rd, normalize(ta-ro)) );
-        nor = normalize(nor);
 
     // ray marching
     float t, i, m;
@@ -118,18 +171,26 @@ void main()
 //            mate = vec3(.5,.6,.7);
         }
 
+        float sha = calcShadow( ro + rd*min(t, dep) );
+
 #define saturate(x) clamp(x,0.,1.)
         const vec3 sun_dir = normalize(vec3(1,2,3));
         float sun_dif = saturate(dot(nor, sun_dir))*.9+.1;
         float sky_dif = saturate(dot(nor, vec3(0,1,0)))*.15;
-        col += vec3(0.9,0.9,0.5)*sun_dif*mate;
+        col += vec3(0.9,0.9,0.5)*sun_dif*mate*sha;
         col += vec3(0.5,0.6,0.9)*sky_dif;
     } else {
         col += vec3(0.5,0.6,0.9)*1.2 - rd.y*.4;
     }
 
-    //col += i/50. * .2;
-
+    col += i/50. * .1;
     col = pow(col, vec3(0.4545));
     fragColor = vec4(col, 1);
+
+    { // depth test
+        // convert camera dist to screen space dist
+        float ssd = min(dep,t) * dot(rd, normalize(ta-ro));
+        float ndc = p10+p11/ssd; // inverse of linear depth
+        gl_FragDepth = (ndc*gl_DepthRange.diff + gl_DepthRange.near + gl_DepthRange.far) / 2.0;
+    }
 }

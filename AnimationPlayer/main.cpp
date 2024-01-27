@@ -4,8 +4,6 @@
 #include <assert.h>
 #include <dlfcn.h>
 #include <sys/stat.h>
-#include <AL/al.h>
-#include <AL/alc.h>
 
 static void error_callback(int _, const char* desc)
 {
@@ -23,53 +21,6 @@ static void joystick_callback(int jid, int event)
 
 int main(int argc, char *argv[])
 {
-    const char *name = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
-    ALCdevice *dev = alcOpenDevice(name);
-
-    ALuint buffer, source;
-    if (dev)
-    {
-        printf("INFO: initialized device %s\n", name);
-        ALCcontext *ctx = alcCreateContext(dev, NULL);
-        alcMakeContextCurrent(ctx);
-
-        uint8_t data[128];
-        for (int i=0; i<128; i++) data[i]=i;
-        alGenBuffers(1, &buffer);
-        alBufferData(buffer, AL_FORMAT_STEREO8, data, sizeof data, 44100);
-
-        alGenSources(1, &source);
-        alSourcef(source, AL_GAIN, 1.0);
-        alSourcef(source, AL_PITCH, 1.0);
-        alSourcei(source, AL_LOOPING, 0);
-
-        alListener3f(AL_POSITION, 0,0,0);
-        alListener3f(AL_VELOCITY, 0,0,0);
-        alSource3f(source, AL_POSITION, 0,0,0);
-
-        alSourceQueueBuffers(source, 1, &buffer);
-        alSourceUnqueueBuffers(source, 0, &buffer);
-        alSourcei(source, AL_BUFFER, buffer);
-        alSourcePlay(source);
-        alSourceStop(source);
-        alSourcePause(source);
-
-        int bufferProcessed;
-        alGetSourcei(source, AL_BUFFERS_PROCESSED, &bufferProcessed);
-//        alDistanceModel()
-//        alDopplerFactor()
-//        alDopplerVelocity()
-
-        int err = alGetError();
-        if (err) fprintf(stderr, "ERROR: %x\n", err);
-        alcMakeContextCurrent(NULL);
-        alcDestroyContext(ctx);
-        alcCloseDevice(dev);
-    }
-
-    const int RES_X = 16*40, RES_Y = 9*40;
-    GLFWwindow *window1;
-
     glfwInit();
     glfwSetErrorCallback(error_callback);
     glfwSetJoystickCallback(joystick_callback);
@@ -78,6 +29,8 @@ int main(int argc, char *argv[])
     glfwWindowHint(GLFW_SAMPLES, 4);
 //    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
+    const int RES_X = 16*40, RES_Y = 9*40;
+    GLFWwindow *window1;
     { // window1
         int screenWidth, screenHeight;
         GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
@@ -97,22 +50,44 @@ int main(int argc, char *argv[])
         glBindTexture(GL_TEXTURE_2D, tex1);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_X, RES_Y);
         glGenTextures(1, &tex2);
-        glBindTexture(GL_TEXTURE_2D, tex2);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, RES_X, RES_Y);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
+        glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGB8, RES_X, RES_Y, 2);
 
+        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
         glGenFramebuffers(1, &bufferA);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferA);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex1, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex2, 0);
-        glDrawBuffer(GL_COLOR_ATTACHMENT0);
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex2, 0, 0);
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, tex2, 0, 1);
+        glDrawBuffers(2, drawBuffers);
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    GLuint bufferB, tex3;
+    const int MapSize = 1024;
+    {
+        glGenTextures(1, &tex3);
+        glBindTexture(GL_TEXTURE_2D, tex3);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, MapSize, MapSize);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glBindTexture(GL_TEXTURE_2D, 0);
 
+        glGenFramebuffers(1, &bufferB);
+        glBindFramebuffer(GL_FRAMEBUFFER, bufferB);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex3, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    {
         GLuint vao;
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
 
-        float data[16] = { RES_X,RES_Y,0,0, 1,1,1,1, };
+        const float data[16] = { RES_X,RES_Y,0,0, 1,1,1,1, };
         GLuint ubo;
         glGenBuffers(1, &ubo);
         glBindBuffer(GL_UNIFORM_BUFFER, ubo);
@@ -120,52 +95,34 @@ int main(int argc, char *argv[])
         glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
     }
 
-    typedef struct{ int x, y; }ivec2;
-    typedef void (plugFunction1)(float);
-    typedef ivec2 (plugFunction2)(void);
-    plugFunction1 *mainAnimation = NULL;
-    plugFunction2 *mainGeometry, *mainGUI;
-    ivec2 ret = {};
-
-    int loadShader1(GLuint, const char*);
-    int loadShader2(GLuint, const char*);
     int loadShaderA(long*, GLuint, const char*);
     int loadShaderB(long*, GLuint, const char*);
-    int loadLibrary(long*, void *, const char*);
+    typedef struct{ int x,y,z,w; }ivec4;
+    typedef void (plugFunction1)(float);
+    typedef ivec4 (plugFunction2)(void);
 
-    const GLuint prog1 = glCreateProgram();
-    const GLuint prog2 = glCreateProgram();
-
-    long lastModTime1, lastModTime2, lastModTime3;
-    float fps, lastFrameTime = 0;
-    uint32_t iFrame = 0;
+    ivec4 ret = {};
 
     while (!glfwWindowShouldClose(window1))
     {
-        ++iFrame;
         float iTime = glfwGetTime();
-        float dt = iTime - lastFrameTime; lastFrameTime = iTime;
-        if ((iFrame & 0xf) == 0) fps = 1./dt;
-        char title[32];
-        sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
-        glfwSetWindowTitle(window1, title);
-        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &iTime);
-
-        loadShaderB(&lastModTime2, prog2, "../AnimationPlayer/base.glsl");
-        int dirty1 = loadShaderA(&lastModTime1, prog1, "../AnimationPlayer/base.frag");
-        if (dirty1)
         {
-            GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
-            glProgramUniform1i(prog1, iChannel1, 1);
-            GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
-            glProgramUniform1i(prog1, iChannel2, 2);
+            static uint32_t iFrame = 0;
+            static float fps, lastFrameTime = 0;
+
+            float dt = iTime - lastFrameTime; lastFrameTime = iTime;
+            if ((iFrame++ & 0xf) == 0) fps = 1./dt;
+            char title[32];
+            sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
+            glfwSetWindowTitle(window1, title);
+            glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &iTime);
         }
-
         {
-//        loadLibrary(&lastModTime3, handle, libraryFilename);
             static void *libraryHandle = NULL;
             static long lastModTime;
             static const char *libraryFilename="libModule.so";
+            static plugFunction1 *mainAnimation = NULL;
+            static plugFunction2 *mainGeometry = NULL;
 
             struct stat libStat;
             int err = stat(libraryFilename, &libStat);
@@ -195,38 +152,74 @@ int main(int argc, char *argv[])
             if (mainAnimation) mainAnimation(iTime);
         }
 
-        glClearColor(0,0,0,1);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthFunc(GL_LESS);
-        glEnable(GL_BLEND);
+//>>>>>>>>>>>>>>>>>>>>>>>>>RENDER<<<<<<<<<<<<<<<<<<<<<<
+        glDepthMask(1);
+        glFrontFace(GL_CW);
+        glDepthFunc(GL_LEQUAL);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glBindFramebuffer(GL_FRAMEBUFFER, bufferB);
+        glViewport(0,0, MapSize, MapSize);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        { // shadow
+            static long lastModTime4;
+            static const GLuint prog4 = glCreateProgram();
+            loadShaderB(&lastModTime4, prog4, "../AnimationPlayer/shadowmap.glsl");
+            glUseProgram(prog4);
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
+        }
+        glDepthFunc(GL_LESS);
+        glFrontFace(GL_CCW);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_BLEND);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferA);
         glViewport(0,0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-        glUseProgram(prog2);
-        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
-
-        {
+        { // geometry
+            static long lastModTime2;
+            static const GLuint prog2 = glCreateProgram();
+            loadShaderB(&lastModTime2, prog2, "../AnimationPlayer/base.glsl");
+            glUseProgram(prog2);
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
+        }
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex1);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, tex3);
+        glDisable(GL_BLEND);
+//        glDisable(GL_DEPTH_TEST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0,0, RES_X, RES_Y);
+        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        { // lighting
+            static long lastModTime1;
+            static const GLuint prog1 = glCreateProgram();
+            int dirty1 = loadShaderA(&lastModTime1, prog1, "../AnimationPlayer/base.frag");
+            if (dirty1)
+            {
+                GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
+                glProgramUniform1i(prog1, iChannel1, 1);
+                GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
+                glProgramUniform1i(prog1, iChannel2, 2);
+                GLint iChannel3 = glGetUniformLocation(prog1, "iChannel3");
+                glProgramUniform1i(prog1, iChannel3, 3);
+            }
+            glUseProgram(prog1);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+        glDepthMask(0);
+        { // gizmo
             static long lastModTime3;
             static const GLuint prog3 = glCreateProgram();
             loadShaderB(&lastModTime3, prog3, "../AnimationPlayer/line.glsl");
             glUseProgram(prog3);
-            glDrawArrays(GL_LINES, 0, ret.y);
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.w);
+            glMultiDrawArraysIndirect(GL_LINES, NULL, ret.z, 20);
         }
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex1);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, tex2);
-        glDisable(GL_BLEND);
-        glDisable(GL_DEPTH_TEST);
-        glDisable(GL_CULL_FACE);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0,0, RES_X, RES_Y);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glUseProgram(prog1);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
         glfwSwapBuffers(window1);
         glfwPollEvents();
@@ -260,7 +253,7 @@ int main(int argc, char *argv[])
 int loadShader1(GLuint, const char*);
 int loadShader2(GLuint, const char*);
 
-int loadShaderX(long *lastModTime, typeof loadShader1 f, GLuint prog, const char *filename)
+int loadShaderX(typeof loadShader1 f, long *lastModTime, GLuint prog, const char *filename)
 {
     struct stat libStat;
     int err = stat(filename, &libStat);
@@ -279,35 +272,10 @@ int loadShaderX(long *lastModTime, typeof loadShader1 f, GLuint prog, const char
 
 int loadShaderA(long *lastModTime, GLuint prog, const char *filename)
 {
-    return loadShaderX(lastModTime, loadShader1, prog, filename);
+    return loadShaderX(loadShader1, lastModTime, prog, filename);
 }
 
 int loadShaderB(long *lastModTime, GLuint prog, const char *filename)
 {
-    return loadShaderX(lastModTime, loadShader2, prog, filename);
-}
-
-int loadLibrary(long *lastModTime, void *handle, const char *filename)
-{
-    struct stat libStat;
-    int err = stat(filename, &libStat);
-    if (err == 0 && *lastModTime != libStat.st_mtime)
-    {
-        if (handle)
-        {
-            assert(dlclose(handle) == 0);
-        }
-        handle = dlopen(filename, RTLD_NOW);
-        if (handle)
-        {
-            *lastModTime = libStat.st_mtime;
-            printf("INFO: reloading file %s\n", filename);
-            return 1;
-        }
-        else
-        {
-            return 2;
-        }
-    }
-    return 0;
+    return loadShaderX(loadShader2, lastModTime, prog, filename);
 }
