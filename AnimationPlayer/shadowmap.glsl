@@ -1,12 +1,6 @@
 #version 300 es
 precision mediump float;
 
-layout (std140) uniform INPUT {
-    vec2 iResolution; float iTime, _pad1;
-    vec3 _ro; float _fov;
-    vec3 _ta; float _pad2;
-};
-
 mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
 {
     vec3 cw = normalize(ta-ro);
@@ -16,23 +10,11 @@ mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
     return mat3(cu, cv, cw);
 }
 
-mat4 ortho(float l, float r, float b, float t, float n, float f)
+vec4 World2Clip(vec3 pos, vec3 rd)
 {
-    return mat4(
-                2./(r-l),0,0,0,
-                0,2./(t-b),0,0,
-                0,0,2./(n-f),0,
-                -(r+l)/(r-l),
-                -(t+b)/(t-b),
-                -(f+n)/(f-n),
-                1.);
-}
-
-vec4 World2Clip(vec3 pos)
-{
-    float r = 1.5;
-    mat3 ca = setCamera(vec3(0), normalize(vec3(1,2,3)), 0.);
-    return ortho(-r,r,-r,r,-r,r) * vec4(pos*ca, 1.);
+    const float ie = 1./5.;
+    mat3 ca = setCamera(vec3(0), rd, 0.);
+    return vec4(ie,ie,-ie,1.) * vec4(pos*ca, 1.);
 }
 
 #ifdef _VS
@@ -43,7 +25,7 @@ layout (location = 5) in mat3 a_Rotation;
 void main()
 {
     vec3 pos = a_Vertex.xyz * a_Scale * a_Rotation + a_Position;
-    gl_Position = World2Clip(pos);
+    gl_Position = World2Clip(pos, normalize(vec3(1,2,3)));
 }
 
 #else

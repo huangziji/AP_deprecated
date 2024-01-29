@@ -75,6 +75,59 @@ static void genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
     }
 }
 
+vector<Command> InitGeometry()
+{
+    vector<Command> C;
+    vector<Vertex> V;
+    vector<ushort> F;
+
+    uint firstIndex = 0;
+    uint baseVertex = 0;
+
+    genCubeMap(V, F, 2);
+    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    genCubeMap(V, F, 2);
+    for (uint i=baseVertex; i<V.size(); i++)
+    {
+        V[i].pos += vec3(0,1,0);
+    }
+    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    // generate sphere
+    genCubeMap(V, F, 10);
+    for (uint i=baseVertex; i<V.size(); i++)
+    {
+        vec3 uv = V[i].pos;
+        float sca = 1.;
+        vec3 h = vec3(0,0,0);
+        vec3 off = vec3(0,1,0)*h;
+        vec3 nor = normalize(uv);
+        vec3 pos = nor + sign(uv)*h;
+        V[i] = { (pos+off)*sca, nor };
+    }
+    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    GLuint ebo, vbo;
+    glGenBuffers(1, &ebo);
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size() * sizeof F[0], F.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, V.size() * sizeof V[0], V.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
+    return C;
+}
+
 static void Circle(vector<vec3> &V, int N)
 {
     vector<vec3> verts;
@@ -114,19 +167,21 @@ static void Cube(vector<vec3> &V)
 
 static void Octahedron(vector<vec3> &V)
 {
-    const float r = sqrt(3);
-    const vec3 verts[] = {
-        vec3(0,-1,0),
-        vec3(r,0,1)*.5f,
-        vec3(-r,0,1)*.5f,
-        vec3(0,0,-1),
-        vec3(0,1,0),
-    };
+    vector<vec3> verts;
     const ushort edges[][2] = {
         {0,1},{0,2},{0,3},
         {1,2},{2,3},{3,1},
         {4,1},{4,2},{4,3},
     };
+
+    verts.push_back(vec3(0,-1,0));
+    for (int i=0; i<3; i++)
+    {
+        float t = i / 2.;
+        verts.push_back(vec3(cos(t), 0, sin(t)));
+    }
+    verts.push_back(vec3(0,1,0));
+
     int N = sizeof edges / sizeof *edges;
     for (int i=0; i<N; i++)
     {
@@ -135,74 +190,18 @@ static void Octahedron(vector<vec3> &V)
     }
 }
 
-typedef enum {
-    eCube1,
-    eCube2,
-    eSphere10,
-}Primitive;
-
-void InitGeometry(vector<Command> &C, vector<Command> &D)
+vector<Command> InitGizmo()
 {
+    vector<Command> C;
     vector<vec3> U;
-    vector<Vertex> V;
-    vector<ushort> F;
 
-    { // polygon
-        uint firstIndex = 0;
-        uint baseVertex = 0;
-
-        genCubeMap(V, F, 2);
-        C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
-        firstIndex = F.size();
-        baseVertex = V.size();
-
-        genCubeMap(V, F, 2);
-        for (uint i=baseVertex; i<V.size(); i++)
-        {
-            V[i].pos += vec3(0,1,0);
-        }
-        C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
-        firstIndex = F.size();
-        baseVertex = V.size();
-
-        // generate sphere
-        genCubeMap(V, F, 10);
-        for (uint i=baseVertex; i<V.size(); i++)
-        {
-            vec3 uv = V[i].pos;
-            float sca = 1.;
-            vec3 h = vec3(0,0,0);
-            vec3 off = vec3(0,1,0)*h;
-            vec3 nor = normalize(uv);
-            vec3 pos = nor + sign(uv)*h;
-            V[i] = { (pos+off)*sca, nor };
-        }
-        C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
-        firstIndex = F.size();
-        baseVertex = V.size();
-    }
-
-    { // gizmo
-        uint baseVertex = 0;
-        Cube(U);
-        D.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
-        baseVertex = U.size();
-        Circle(U, 32);
-        D.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
-        baseVertex = U.size();
-    }
-
-    GLuint ebo, vbo;
-    glGenBuffers(1, &ebo);
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size() * sizeof F[0], F.data(), GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, V.size() * sizeof V[0], V.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
+    uint baseVertex = 0;
+    Cube(U);
+    C.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
+    baseVertex = U.size();
+    Circle(U, 32);
+    C.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
+    baseVertex = U.size();
 
     GLuint vbo2;
     glGenBuffers(1, &vbo2);
@@ -210,4 +209,6 @@ void InitGeometry(vector<Command> &C, vector<Command> &D)
     glBufferData(GL_ARRAY_BUFFER, U.size() * sizeof U[0], U.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(8);
     glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, sizeof(vec3), 0);
+
+    return C;
 }

@@ -153,6 +153,8 @@ int main(int argc, char *argv[])
         }
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>RENDER<<<<<<<<<<<<<<<<<<<<<<
+#define SHADER_DIR "../AnimationPlayer/"
+
         glDepthMask(1);
         glFrontFace(GL_CW);
         glDepthFunc(GL_LEQUAL);
@@ -164,7 +166,7 @@ int main(int argc, char *argv[])
         { // shadow
             static long lastModTime4;
             static const GLuint prog4 = glCreateProgram();
-            loadShaderB(&lastModTime4, prog4, "../AnimationPlayer/shadowmap.glsl");
+            loadShaderB(&lastModTime4, prog4, SHADER_DIR"shadowmap.glsl");
             glUseProgram(prog4);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
@@ -179,17 +181,11 @@ int main(int argc, char *argv[])
         { // geometry
             static long lastModTime2;
             static const GLuint prog2 = glCreateProgram();
-            loadShaderB(&lastModTime2, prog2, "../AnimationPlayer/base.glsl");
+            loadShaderB(&lastModTime2, prog2, SHADER_DIR"base.glsl");
             glUseProgram(prog2);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
         }
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex1);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, tex3);
         glDisable(GL_BLEND);
 //        glDisable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -198,7 +194,7 @@ int main(int argc, char *argv[])
         { // lighting
             static long lastModTime1;
             static const GLuint prog1 = glCreateProgram();
-            int dirty1 = loadShaderA(&lastModTime1, prog1, "../AnimationPlayer/base.frag");
+            int dirty1 = loadShaderA(&lastModTime1, prog1, SHADER_DIR"base.frag");
             if (dirty1)
             {
                 GLint iChannel1 = glGetUniformLocation(prog1, "iChannel1");
@@ -208,17 +204,31 @@ int main(int argc, char *argv[])
                 GLint iChannel3 = glGetUniformLocation(prog1, "iChannel3");
                 glProgramUniform1i(prog1, iChannel3, 3);
             }
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, tex1);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, tex3);
             glUseProgram(prog1);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
         glDepthMask(0);
+        glEnable(GL_BLEND);
         { // gizmo
             static long lastModTime3;
             static const GLuint prog3 = glCreateProgram();
-            loadShaderB(&lastModTime3, prog3, "../AnimationPlayer/line.glsl");
+            loadShaderB(&lastModTime3, prog3, SHADER_DIR"line.glsl");
             glUseProgram(prog3);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.w);
             glMultiDrawArraysIndirect(GL_LINES, NULL, ret.z, 20);
+        }
+        { // splat
+            static long lastModTime5;
+            static const GLuint prog5 = glCreateProgram();
+            loadShaderB(&lastModTime5, prog5, SHADER_DIR"splat.glsl");
+            glUseProgram(prog5);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
         glfwSwapBuffers(window1);

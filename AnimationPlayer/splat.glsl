@@ -25,39 +25,37 @@ mat4 getProjectionMatrix()
     return mat4(_fov/ar, 0,0,0,0, _fov, 0,0,0,0, p1,1,0,0,p2,0);
 }
 
-vec4 World2Clip(vec3 pos)
-{
-    mat3 ca = setCamera(_ro, _ta, 0.);
-    return getProjectionMatrix() * vec4((pos-_ro)*ca, 1.);
-}
-
 #ifdef _VS
 #define _varying out
 #else
 #define _varying in
 #endif
 
-_varying vec3 v_Position;
-_varying vec3 v_Normal;
+_varying vec2 UV;
 
 #ifdef _VS
 layout (location = 0) in vec3 a_Vertex;
 layout (location = 1) in vec3 a_Normal;
-layout (location = 3) in vec3 a_Scale;
-layout (location = 4) in vec3 a_Position;
-layout (location = 5) in mat3 a_Rotation;
 void main()
 {
-    v_Normal = a_Normal * a_Rotation;
-    v_Position = a_Vertex.xyz * a_Scale * a_Rotation + a_Position;
-    gl_Position = World2Clip(v_Position);
-}
+    UV = vec2(gl_VertexID&1, gl_VertexID/2) *2.-1.;
+    vec3 pos = vec3(UV, 0);
 
+    float t = iTime*5.;
+    float c = cos(t), s = sin(t);
+    pos.xy *= mat2(c,s,-s,c);
+    pos.y += c + 1.;
+    pos *= .2;
+
+    mat3 ca = setCamera(_ro, _ta, 0.);
+    gl_Position = getProjectionMatrix() * vec4(pos - _ro*ca, 1);
+}
 #else
-layout (location = 0) out vec4 fragColor;
-void main(void)
+out vec4 fragColor;
+void main()
 {
-    vec3 nor = normalize(v_Normal);
-    fragColor = vec4(nor, 1.);
+    float d = smoothstep(0., -.1, length(UV)-1.);
+    vec3 col = vec3(1);
+    fragColor = vec4(col,d);
 }
 #endif

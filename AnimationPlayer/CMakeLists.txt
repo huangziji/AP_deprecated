@@ -22,7 +22,7 @@ target_link_libraries(${PROJECT_NAME} glfw glad openal Common)
 target_link_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(Common SHARED common.cpp Geometry.cpp
-    stb_image.h base.glsl base.frag line.glsl common.glsl shadowmap.glsl)
+    stb_image.h base.glsl base.frag line.glsl splat.glsl common.glsl shadowmap.glsl)
 add_library(Module SHARED module.cpp)
 target_link_libraries(Module glfw glad Common)
 target_link_libraries(Common glfw glad)
