@@ -10,20 +10,10 @@ static void error_callback(int _, const char* desc)
     fprintf(stderr, "ERROR: %s\n", desc);
 }
 
-static void joystick_callback(int jid, int event)
-{
-    if (event == GLFW_CONNECTED) {
-        printf("INFO: Joystick connected: %s\n", glfwGetJoystickName(jid));
-    } else if (event == GLFW_DISCONNECTED) {
-        printf("INFO: Joystick disconnected: %s\n", glfwGetJoystickName(jid));
-    }
-}
-
 int main(int argc, char *argv[])
 {
     glfwInit();
     glfwSetErrorCallback(error_callback);
-    glfwSetJoystickCallback(joystick_callback);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     glfwWindowHint(GLFW_SAMPLES, 4);
@@ -64,11 +54,11 @@ int main(int argc, char *argv[])
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
     GLuint bufferB, tex3;
-    const int MapSize = 1024;
+    const int RES_W = 1024;
     {
         glGenTextures(1, &tex3);
         glBindTexture(GL_TEXTURE_2D, tex3);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, MapSize, MapSize);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_W, RES_W);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
@@ -161,7 +151,7 @@ int main(int argc, char *argv[])
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferB);
-        glViewport(0,0, MapSize, MapSize);
+        glViewport(0,0, RES_W, RES_W);
         glClear(GL_DEPTH_BUFFER_BIT);
         { // shadow
             static long lastModTime4;

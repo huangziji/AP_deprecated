@@ -5,6 +5,7 @@
 using boost::container::vector;
 using namespace glm;
 
+/// @link https://www.shadertoy.com/view/4djSRW
 float hash11(float p)
 {
     p = fract(p * .1031);
@@ -13,6 +14,7 @@ float hash11(float p)
     return fract(p);
 }
 
+/// @link https://iquilezles.org/articles/noacos/
 mat3x3 rotationAlign( vec3 d, vec3 z )
 {
     vec3  v = cross( z, d );
@@ -24,6 +26,7 @@ mat3x3 rotationAlign( vec3 d, vec3 z )
                    v.x*v.z*k - v.y,   v.y*v.z*k + v.x,    v.z*v.z*k + c    );
 }
 
+/// @link https://iquilezles.org/articles/simpleik/
 vec3 solve( vec3 p, float r1, float r2, vec3 dir )
 {
         vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
@@ -59,6 +62,26 @@ mat3 rotateZ(float a)
                 0, 0, 1);
 }
 
+// Catmull Rom
+static mat4 coefs = {
+     0, 2, 0, 0,
+    -1, 0, 1, 0,
+     2,-5, 4,-1,
+    -1, 3,-3, 1 };
+
+/// @source: Texturing And Modeling A Procedural Approach
+float spline( const float *k, int n, float t )
+{
+    t *= n - 3;
+    int i = int(floor(t));
+    t -= i;
+    k += i;
+
+    vec4 f = (coefs * .5f) * vec4(1, t, t*t, t*t*t);
+    vec4 j = *(vec4*)k;
+    return dot(f, j);
+}
+
 typedef struct {
     vec3 sca, pos;
     mat3 rot;
@@ -72,124 +95,128 @@ typedef struct {
     uint baseInstance;
 }Command;
 
-static const int NullIndex = -1;
-
-typedef struct {
-    vec3 dir;
-    int boneIdx1, boneIdx2, boneIdx3;
-    float r1, r2;
-}SimpleIk;
-
 typedef struct {
     vec3 local;
-    int objectIndex;
-    int parentIndex;
+    int objectId;
+    int parentId;
+    vector<int> childIds;
 }Node;
 
 typedef enum {
+    Null = -1,
+
     Root,
     Hips,
+    Spine1,
+    Spine2,
+    Spine3,
     Neck,
     Head,
-    Shoulder_L, Shoulder_R,
-    Wrist_L, Wrist_R,
-    Leg_L, Leg_R,
-    Foot_L, Foot_R,
+    Head_End,
 
-    Spine1,Spine2,Head_Top,
-    Knee_L,Knee_R,
-    Toe_L,Toe_R,
-    Elbow_L,Elbow_R,
-    Hand_L,Hand_R,
+    Shoulder_R,
+    Elbow_R,
+    Wrist_R,
+    Hand_R,
+    Leg_R,
+    Knee_R,
+    Foot_R,
+    Toe_R,
+
+    Shoulder_L,
+    Elbow_L,
+    Wrist_L,
+    Hand_L,
+    Leg_L,
+    Knee_L,
+    Foot_L,
+    Toe_L,
+
+    Joint_Max,
 }IkRig;
 
-template<class T> vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
-template<class T> vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
+const vec3 pNeck = {0,1.7,0};
+const vec3 pWrist = {.7,1.6,0};
+const vec3 pFoot = {.15,0,0};
+
+const vec3 Mirror = vec3(-1,1,1);
+const vec3 joints[] = {
+    {},
+    {0,1.0,0}, // Hips
+    mix(joints[Hips], pNeck, .25), // Spine1
+    mix(joints[Hips], pNeck, .50), // Spine2
+    mix(joints[Hips], pNeck, .75), // Spine3
+    pNeck, // Neck
+    {0,1.75,0}, // Head
+    joints[Head] + vec3(0,.2,0), // Head_End
+
+    {.2,1.6,0}, // Shoulder_R
+    mix(joints[Shoulder_R], pWrist, .5), // Elbow_R
+    pWrist, // Wrist_R
+    joints[Wrist_R] + vec3(.1,0,0), // Hand_R
+    {.15,1.1,0}, // Leg_R
+    mix(joints[Leg_R], pFoot, .5) + vec3(0,0,.001), // Knee_R
+    pFoot, // Foot_R
+    joints[Foot_R] + vec3(0,0,.2), // Toe_R
+
+    joints[Shoulder_R] * Mirror,
+    joints[Elbow_R] * Mirror,
+    joints[Wrist_R] * Mirror,
+    joints[Hand_R] * Mirror,
+    joints[Leg_R] * Mirror,
+    joints[Knee_R] * Mirror,
+    joints[Foot_R] * Mirror,
+    joints[Toe_R] * Mirror,
+};
+
+const int bones[][3] = {
+    Root,Null,Null,
+    Hips,Root,Null,
+    Spine1,Hips,1,
+    Spine2,Spine1,1,
+    Spine3,Spine2,1,
+    Neck,Spine2,1,
+    Head,Neck,1,
+    Head_End,Head,1,
+
+    Shoulder_R,Spine2,Null,
+    Elbow_R,Shoulder_R,1,
+    Wrist_R,Elbow_R,1,
+    Hand_R,Wrist_R,1,
+    Leg_R,Hips,Null,
+    Knee_R,Leg_R,1,
+    Foot_R,Knee_R,1,
+    Toe_R,Foot_R,1,
+
+    Shoulder_L,Spine2,Null,
+    Elbow_L,Shoulder_L,1,
+    Wrist_L,Elbow_L,1,
+    Hand_L,Wrist_L,1,
+    Leg_L,Hips,Null,
+    Knee_L,Leg_L,1,
+    Foot_L,Knee_L,1,
+    Toe_L,Foot_L,1,
+};
+
+template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
+template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 int loadTexture(GLuint tex, const char *filename);
 vector<Command> InitGeometry();
 
+static vector<Node> gSkeleton;
+static vector<Command> C = InitGeometry();
+static GLuint ibo, cbo1, cbo2, tex, frame = 0;
 extern "C" ivec4 mainGeometry()
 {
-    vector<vec3> joints;
-    vector<ivec2> bones;
-
-    const float heaHei = 1.75, shdHei = 1.6, hipHei = 1.1;
-    joints <<
-        vec3(0),
-        vec3(0,hipHei,0),
-        vec3(0,shdHei+.1,0),
-        vec3(0,heaHei,0),
-        vec3(-.15,shdHei,0),vec3(.15,shdHei,0),
-        vec3(-.7,shdHei,0),vec3(.7,shdHei,0),
-        vec3(-.15,hipHei,0),vec3(.15,hipHei,0),
-        vec3(-.15,0,0),vec3(.15,0,0),
-
-        mix(joints[Hips], joints[Neck], .33), // Spine1
-        mix(joints[Hips], joints[Neck], .66), // Spine2
-            joints[Head] + vec3(0,.2,0), // Top
-        mix(joints[Leg_L], joints[Foot_L], .5) + vec3(0,0,.001), // Knee_L
-        mix(joints[Leg_R], joints[Foot_R], .5) + vec3(0,0,.001), // Knee_R
-            joints[Foot_L] + vec3(0,0,.2), // Toe_L
-            joints[Foot_R] + vec3(0,0,.2), // Toe_R
-        mix(joints[Shoulder_L], joints[Wrist_L], .5), // Elbow_L
-        mix(joints[Shoulder_R], joints[Wrist_R], .5), // Elbow_R
-            joints[Wrist_L] + vec3(-.1,0,0), // Hand_L
-            joints[Wrist_R] + vec3(.1,0,0); // Hand_R
-
-
-    bones <<
-        ivec2(Root, Hips),
-        ivec2(Hips, Spine1),
-        ivec2(Spine1, Spine2),
-        ivec2(Spine2, Neck),
-        ivec2(Neck, Head),
-        ivec2(Head, Head_Top),
-
-        ivec2(Hips, Leg_L),
-        ivec2(Leg_L, Knee_L),
-        ivec2(Knee_L, Foot_L),
-        ivec2(Foot_L, Toe_L),
-        ivec2(Hips, Leg_R),
-        ivec2(Leg_R, Knee_R),
-        ivec2(Knee_R, Foot_R),
-        ivec2(Foot_R, Toe_R),
-
-        ivec2(Spine2, Shoulder_L),
-        ivec2(Shoulder_L, Elbow_L),
-        ivec2(Elbow_L, Wrist_L),
-        ivec2(Wrist_L, Hand_L),
-        ivec2(Spine2, Shoulder_R),
-        ivec2(Shoulder_R, Elbow_R),
-        ivec2(Elbow_R, Wrist_R),
-        ivec2(Wrist_R, Hand_R);
-
-    static vector<Command> C = InitGeometry();
-    vector<Instance> I;
-    for (int i=0; i<bones.size(); i++)
+    gSkeleton << Node{ {}, Null, Null, };
+    for (int i=Hips; i<Joint_Max; i++)
     {
-        ivec2 b = bones[i];
-        if (b.x == Root ||
-            b.y == Shoulder_L ||
-            b.y == Shoulder_R ||
-            b.y == Leg_L ||
-            b.y == Leg_R) continue;
-
-        float w = .1 + hash11(i + 154) * .05;
-        if (i > 5) w *= .5;
-        w *= 1. - (b.x == Neck) * .5;
-        w *= 1. + (b.y == Neck) * .5;
-
-        vec3 local = joints[b.y]-joints[b.x];
-        float r = length(local);
-        mat3 swi = rotationAlign(local, vec3(0,1/r,0));
-        I << Instance{ vec3(w,.5*r,w), joints[b.x], swi };
-        C[1].instanceCount ++;
+        int parentId = bones[i][1];
+        int objectId = bones[i][2];
+        gSkeleton << Node{ joints[i]-joints[parentId], objectId, parentId, };
+        gSkeleton[parentId].childIds.push_back(i);
     }
 
-//    I << Instance{ vec3(.3), vec3(1,0,0), mat3(1) };
-//    C[1].instanceCount++;
-
-    static GLuint ibo, cbo1, cbo2, tex, frame = 0;
     if (!frame++)
     {
         glGenBuffers(1, &ibo);
@@ -198,7 +225,7 @@ extern "C" ivec4 mainGeometry()
         glGenTextures(1, &tex);
     }
 
-    int success = loadTexture(tex, "../T_Satin_J.png");
+    int success = loadTexture(tex, "../gold2.png");
     if (success)
     {
         glActiveTexture(GL_TEXTURE2);
@@ -214,7 +241,7 @@ extern "C" ivec4 mainGeometry()
 //    glBufferData(GL_DRAW_INDIRECT_BUFFER, D.size() * sizeof D[0], D.data(), GL_STATIC_DRAW);
 
     glBindBuffer(GL_ARRAY_BUFFER, ibo);
-    glBufferData(GL_ARRAY_BUFFER, I.size() * sizeof I[0], I.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
     for (size_t off=0, i=3; i<8; i++, off+=12)
     {
         glEnableVertexAttribArray(i);
@@ -227,10 +254,77 @@ extern "C" ivec4 mainGeometry()
 
 extern "C" void mainAnimation(float t)
 {
-    //t = sin(t*3.0)*0.17 + 0.1;
     vec3 ta = vec3(0,1,0);
-    float m = t;
+    float m = sin(t*3.0)*0.17 + 1.2;
     vec3 ro = ta + vec3(sin(m),.5,cos(m))*1.5f;
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
+
+    vector<vec3> world(Joint_Max, vec3(0));
+    vector<mat3> local(Joint_Max, mat3(1));
+//    local[Hips] = rotateY(t);
+//    world[Hips] = joints[Hips] + vec3(0, -(sin(t)+1.)*.1, 0);
+
+    // Dispatch
+    for (int i=1; i<Joint_Max; i++)
+    {
+        int p = gSkeleton[i].parentId;
+        world[i] = world[p] + gSkeleton[i].local * local[p];
+        local[i] *= local[p];
+    }
+
+    {
+        const float keys[] = {
+            -.2, -.2,-.1,0,.15,.2,.15,0,-.1,-.2, -.2,
+        };
+
+        float z = spline( keys, sizeof keys/sizeof *keys, fract(t) );
+        world[Foot_R] = joints[Foot_R] + vec3(0, z+.21, 0 );
+
+        int id = Foot_R;
+        vec3 dir = vec3(1,0,0);
+        int x = gSkeleton[id].parentId;
+        int o = gSkeleton[x].parentId;
+        float r1 = length(gSkeleton[x].local);
+        float r2 = length(gSkeleton[id].local);
+        world[x] = world[o] + solve(world[id]-world[o], r1, r2, dir);
+
+        float ir2 = 1. / dot(gSkeleton[id].local, gSkeleton[id].local);
+        local[id] = rotationAlign(world[id]-world[x], gSkeleton[id].local) * ir2;
+        world[Toe_R] = world[id] + gSkeleton[Toe_R].local * local[id];
+    }
+
+    vector<Instance> I;
+    for (int i=Root; i<Joint_Max; i++)
+    {
+        int objectId = gSkeleton[i].objectId;
+        if (Null == objectId) { continue; }
+
+        int parentId = gSkeleton[i].parentId;
+
+        float w = .2 + hash11(i + 349) * .1;
+            w *= 1 - (i>Shoulder_R || parentId == Neck) * .5;
+
+        vec3 local = world[i] - world[parentId];
+        float r = length(local);
+        mat3 swi = rotationAlign(local/r, vec3(0,1,0));
+        I << Instance{ vec3(w, r, w), world[parentId], swi };
+    }
+
+    C[1].instanceCount = I.size();
+
+    int size1;
+    int size2 = I.size() * sizeof I[0];
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &size1);
+    if (size1 < size2)
+    {
+        glBufferData(GL_ARRAY_BUFFER, size2, I.data(), GL_DYNAMIC_DRAW);
+    }
+    else
+    {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, size2, I.data());
+    }
+
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo1);
+    glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, C.size() * sizeof C[0], C.data());
 }

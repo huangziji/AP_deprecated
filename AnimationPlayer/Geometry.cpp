@@ -16,7 +16,7 @@ typedef struct {
     uint baseInstance;
 }Command;
 
-static void genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
+static Command genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
 {
     const mat3x3 Rots[] = {
         { 1,0,0, 0,1,0, 0,0,1, }, // forward
@@ -73,7 +73,12 @@ static void genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
             V[i].nor = normalize(V[i].nor);
         }
     }
+
+    return { (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 };
 }
+
+template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
+template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 
 vector<Command> InitGeometry()
 {
@@ -84,22 +89,21 @@ vector<Command> InitGeometry()
     uint firstIndex = 0;
     uint baseVertex = 0;
 
-    genCubeMap(V, F, 2);
-    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
+    C << genCubeMap(V, F, 2);
     firstIndex = F.size();
     baseVertex = V.size();
 
-    genCubeMap(V, F, 2);
+    C << genCubeMap(V, F, 2);
     for (uint i=baseVertex; i<V.size(); i++)
     {
         V[i].pos += vec3(0,1,0);
+        V[i].pos *= .5;
     }
-    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
     firstIndex = F.size();
     baseVertex = V.size();
 
-    // generate sphere
-    genCubeMap(V, F, 10);
+    // sphere
+    C << genCubeMap(V, F, 10);
     for (uint i=baseVertex; i<V.size(); i++)
     {
         vec3 uv = V[i].pos;
@@ -110,7 +114,6 @@ vector<Command> InitGeometry()
         vec3 pos = nor + sign(uv)*h;
         V[i] = { (pos+off)*sca, nor };
     }
-    C.push_back({ (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 });
     firstIndex = F.size();
     baseVertex = V.size();
 

@@ -23,6 +23,11 @@ vec2 matcap(vec3 eye, vec3 normal)
     return reflected.xy / m + 0.5;
 }
 
+vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
+{
+    return a + b*cos( 6.28318*(c*t+d) );
+}
+
 float sdBox(vec3 pos, float b)
 {
     vec3 q = abs(pos) - b;
@@ -48,7 +53,7 @@ vec2 map(vec3 pos)
 {
     float d1, d2;
     d1 = pos.y + .05;
-    float id = 2.;
+    float id = 1.;
 //    d2 = length(pos-vec3(0,1,0)) - .1;
 //    if (d2 < d1) { d1=d2; id=1.; }
 //    d2 = sdBox(pos-vec3(-.2,1,0), .3) - .02;
@@ -101,6 +106,7 @@ void main()
 {
     vec2 screenUV = gl_FragCoord.xy/iResolution.xy;
     vec4 gBuffer1 = texture(iChannel1, vec3(screenUV, 0));
+    vec4 gBuffer2 = texture(iChannel1, vec3(screenUV, 1));
 
     vec3 ro = _ro, ta = _ta;
     vec2 uv = (2.0*gl_FragCoord.xy-iResolution.xy)/iResolution.y;
@@ -129,12 +135,8 @@ void main()
     // compare rasterized objects to raymarching objects
     if (t < 100. || dep < 100.)
     {
-        vec3 pal[] = vec3[](
-                vec3(0.5,0.7,0.6),
-                vec3(0.5,0.4,0.7),
-                vec3(0.7,0.7,0.5));
-        int ci = int(floor(m));
-        vec3 mate = mix(pal[ci], pal[ci+1], fract(m));
+        vec3 mate = palette(m/4., vec3(0.5,0.7,0.6), vec3(0.5,0.4,0.7),
+                vec3(0.7,0.7,0.5), vec3(.8,.7,.7));
 
         if (t < dep)
         { // raymarching objects
@@ -145,7 +147,9 @@ void main()
         { // polygons
             vec2 uv = matcap(rd, nor);
             mate = textureLod(iChannel2, uv, 2.0).rgb;
-//            mate = vec3(.5,.6,.7);
+            float id = gBuffer2.r * float(0xff);
+            mate *= 1.7 * palette(id/20., vec3(0.5,0.7,0.6), vec3(0.5,0.4,0.7),
+                    vec3(0.7,0.7,0.5), vec3(.8,.7,.1));
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));

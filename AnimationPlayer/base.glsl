@@ -1,5 +1,6 @@
 #version 300 es
 precision mediump float;
+precision mediump int;
 
 layout (std140) uniform INPUT {
     vec2 iResolution; float iTime, _pad1;
@@ -39,6 +40,7 @@ vec4 World2Clip(vec3 pos)
 
 _varying vec3 v_Position;
 _varying vec3 v_Normal;
+flat _varying int v_Id;
 
 #ifdef _VS
 layout (location = 0) in vec3 a_Vertex;
@@ -48,6 +50,7 @@ layout (location = 4) in vec3 a_Position;
 layout (location = 5) in mat3 a_Rotation;
 void main()
 {
+    v_Id = gl_InstanceID;
     v_Normal = a_Normal * a_Rotation;
     v_Position = a_Vertex.xyz * a_Scale * a_Rotation + a_Position;
     gl_Position = World2Clip(v_Position);
@@ -55,9 +58,11 @@ void main()
 
 #else
 layout (location = 0) out vec4 fragColor;
+layout (location = 1) out vec4 id;
 void main(void)
 {
     vec3 nor = normalize(v_Normal);
     fragColor = vec4(nor, 1.);
+    id = vec4(float(v_Id)/float(0xff), vec2(0), 1.);
 }
 #endif
