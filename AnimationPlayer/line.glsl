@@ -53,9 +53,11 @@ void main()
 
 #else
 layout (location = 0) out vec4 fragColor;
+layout (location = 1) out vec4 id;
 void main()
 {
     vec3 col = normalize(sin(vec3(13.144,412.32,141.212)*v_id));
     fragColor = vec4(col, 1);
+    id = vec4(1);
 }
 #endif

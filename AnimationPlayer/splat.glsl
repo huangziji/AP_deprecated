@@ -51,11 +51,13 @@ void main()
     gl_Position = getProjectionMatrix() * vec4(pos - _ro*ca, 1);
 }
 #else
-out vec4 fragColor;
+layout (location = 0) out vec4 fragColor;
+layout (location = 1) out vec4 id;
 void main()
 {
     float d = smoothstep(0., -.1, length(UV)-1.);
-    vec3 col = vec3(1);
-    fragColor = vec4(col,d);
+    vec3 col = vec3(1,0,1);
+    fragColor = vec4(col, d);
+    id = vec4(d);
 }
 #endif

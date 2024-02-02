@@ -108,6 +108,12 @@ void main()
     vec4 gBuffer1 = texture(iChannel1, vec3(screenUV, 0));
     vec4 gBuffer2 = texture(iChannel1, vec3(screenUV, 1));
 
+    if (gBuffer2.g == 1.)
+    {
+        fragColor = gBuffer1;
+        return;
+    }
+
     vec3 ro = _ro, ta = _ta;
     vec2 uv = (2.0*gl_FragCoord.xy-iResolution.xy)/iResolution.y;
     mat3 ca = setCamera(ro, ta, 0.0);
@@ -165,13 +171,16 @@ void main()
     }
 
     col += i/50. * .1;
+    col = mix(col, gBuffer1.rgb, gBuffer2.g); // blend with splats
     col = pow(col, vec3(0.4545));
     fragColor = vec4(col, 1);
 
+#if 0
     { // depth test
         // convert camera dist to screen space dist
         float ssd = min(dep,t) * dot(rd, normalize(ta-ro));
         float ndc = p10+p11/ssd; // inverse of linear depth
         gl_FragDepth = (ndc*gl_DepthRange.diff + gl_DepthRange.near + gl_DepthRange.far) / 2.0;
     }
+#endif
 }

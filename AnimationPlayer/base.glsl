@@ -63,6 +63,6 @@ void main(void)
 {
     vec3 nor = normalize(v_Normal);
     fragColor = vec4(nor, 1.);
-    id = vec4(float(v_Id)/float(0xff), vec2(0), 1.);
+    id = vec4(float(v_Id)/float(0xff), vec2(0.), 1);
 }
 #endif

@@ -80,7 +80,7 @@ static Command genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
 template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
 template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 
-vector<Command> InitGeometry()
+vector<Command> InitGeometry(GLuint &vbo, GLuint &ebo)
 {
     vector<Command> C;
     vector<Vertex> V;
@@ -117,7 +117,6 @@ vector<Command> InitGeometry()
     firstIndex = F.size();
     baseVertex = V.size();
 
-    GLuint ebo, vbo;
     glGenBuffers(1, &ebo);
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
@@ -135,6 +134,7 @@ static void Circle(vector<vec3> &V, int N)
 {
     vector<vec3> verts;
     vector<ivec2> edges;
+
     for (int i=0; i<N; i++)
     {
         float t = i / float(N-1) * M_PI * 2.;
@@ -142,6 +142,7 @@ static void Circle(vector<vec3> &V, int N)
         verts.push_back( vec3(c,s,0) );
         edges.push_back( ivec2(i,(i+1)%N) );
     }
+
     for (size_t i=0; i<edges.size(); i++)
     {
         V.push_back(verts[edges[i][0]]);
@@ -149,26 +150,7 @@ static void Circle(vector<vec3> &V, int N)
     }
 }
 
-static void Cube(vector<vec3> &V)
-{
-    vec3 verts[] = {
-        {0,0,0},{1,0,0},{0,1,0},{1,1,0},
-        {0,0,1},{1,0,1},{0,1,1},{1,1,1},
-    };
-    ushort edges[][2] = {
-        {0,1},{2,3},{4,5},{6,7},
-        {0,2},{1,3},{4,6},{5,7},
-        {0,4},{1,5},{2,6},{3,7},
-    };
-    int N = sizeof edges / sizeof *edges;
-    for (int i=0; i<N; i++)
-    {
-        V.push_back(verts[edges[i][0]]*2.f-1.f);
-        V.push_back(verts[edges[i][1]]*2.f-1.f);
-    }
-}
-
-static void Octahedron(vector<vec3> &V)
+static void Shard(vector<vec3> &V)
 {
     vector<vec3> verts;
     const ushort edges[][2] = {
@@ -191,27 +173,4 @@ static void Octahedron(vector<vec3> &V)
         V.push_back(verts[edges[i][0]]);
         V.push_back(verts[edges[i][1]]);
     }
-}
-
-vector<Command> InitGizmo()
-{
-    vector<Command> C;
-    vector<vec3> U;
-
-    uint baseVertex = 0;
-    Cube(U);
-    C.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
-    baseVertex = U.size();
-    Circle(U, 32);
-    C.push_back({ (uint)U.size()-baseVertex, 0, baseVertex, 0 });
-    baseVertex = U.size();
-
-    GLuint vbo2;
-    glGenBuffers(1, &vbo2);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo2);
-    glBufferData(GL_ARRAY_BUFFER, U.size() * sizeof U[0], U.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(8);
-    glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, sizeof(vec3), 0);
-
-    return C;
 }

@@ -201,11 +201,11 @@ const int bones[][3] = {
 template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
 template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 int loadTexture(GLuint tex, const char *filename);
-vector<Command> InitGeometry();
+vector<Command> InitGeometry(GLuint &vbo, GLuint &ebo);
 
 static vector<Node> gSkeleton;
-static vector<Command> C = InitGeometry();
-static GLuint ibo, cbo1, cbo2, tex, frame = 0;
+static GLuint ibo, vbo, ebo, cbo, tex, frame = 0;
+static vector<Command> C = InitGeometry(vbo, ebo);
 extern "C" ivec4 mainGeometry()
 {
     gSkeleton << Node{ {}, Null, Null, };
@@ -220,8 +220,7 @@ extern "C" ivec4 mainGeometry()
     if (!frame++)
     {
         glGenBuffers(1, &ibo);
-        glGenBuffers(1, &cbo1);
-        glGenBuffers(1, &cbo2);
+        glGenBuffers(1, &cbo);
         glGenTextures(1, &tex);
     }
 
@@ -235,11 +234,8 @@ extern "C" ivec4 mainGeometry()
     glPointSize(3.0);
     glLineWidth(1.0);
 
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo1);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     glBufferData(GL_DRAW_INDIRECT_BUFFER, C.size() * sizeof C[0], C.data(), GL_STATIC_DRAW);
-//    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo2);
-//    glBufferData(GL_DRAW_INDIRECT_BUFFER, D.size() * sizeof D[0], D.data(), GL_STATIC_DRAW);
-
     glBindBuffer(GL_ARRAY_BUFFER, ibo);
     glBufferData(GL_ARRAY_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
     for (size_t off=0, i=3; i<8; i++, off+=12)
@@ -249,7 +245,7 @@ extern "C" ivec4 mainGeometry()
         glVertexAttribDivisor(i, 1);
     }
 
-    return { C.size(), cbo1, 0, 0 };
+    return { C.size(), cbo, ebo, 0 };
 }
 
 extern "C" void mainAnimation(float t)
@@ -315,6 +311,7 @@ extern "C" void mainAnimation(float t)
 
     int size1;
     int size2 = I.size() * sizeof I[0];
+    glBindBuffer(GL_ARRAY_BUFFER, ibo);
     glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &size1);
     if (size1 < size2)
     {
@@ -325,6 +322,6 @@ extern "C" void mainAnimation(float t)
         glBufferSubData(GL_ARRAY_BUFFER, 0, size2, I.data());
     }
 
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo1);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, C.size() * sizeof C[0], C.data());
 }

@@ -145,6 +145,9 @@ int main(int argc, char *argv[])
 //>>>>>>>>>>>>>>>>>>>>>>>>>RENDER<<<<<<<<<<<<<<<<<<<<<<
 #define SHADER_DIR "../AnimationPlayer/"
 
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ret.z);
+
         glDepthMask(1);
         glFrontFace(GL_CW);
         glDepthFunc(GL_LEQUAL);
@@ -158,7 +161,6 @@ int main(int argc, char *argv[])
             static const GLuint prog4 = glCreateProgram();
             loadShaderB(&lastModTime4, prog4, SHADER_DIR"shadowmap.glsl");
             glUseProgram(prog4);
-            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
         }
         glDepthFunc(GL_LESS);
@@ -173,14 +175,23 @@ int main(int argc, char *argv[])
             static const GLuint prog2 = glCreateProgram();
             loadShaderB(&lastModTime2, prog2, SHADER_DIR"base.glsl");
             glUseProgram(prog2);
-            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
         }
+        glDepthMask(0);
+        void DrawGizmo();
+        DrawGizmo();
+        { // splat
+            static long lastModTime5;
+            static const GLuint prog5 = glCreateProgram();
+            loadShaderB(&lastModTime5, prog5, SHADER_DIR"splat.glsl");
+            glUseProgram(prog5);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
         glDisable(GL_BLEND);
-//        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_DEPTH_TEST);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0,0, RES_X, RES_Y);
-        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT);
         { // lighting
             static long lastModTime1;
             static const GLuint prog1 = glCreateProgram();
@@ -201,23 +212,6 @@ int main(int argc, char *argv[])
             glActiveTexture(GL_TEXTURE3);
             glBindTexture(GL_TEXTURE_2D, tex3);
             glUseProgram(prog1);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        }
-        glDepthMask(0);
-        glEnable(GL_BLEND);
-        { // gizmo
-            static long lastModTime3;
-            static const GLuint prog3 = glCreateProgram();
-            loadShaderB(&lastModTime3, prog3, SHADER_DIR"line.glsl");
-            glUseProgram(prog3);
-            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.w);
-            glMultiDrawArraysIndirect(GL_LINES, NULL, ret.z, 20);
-        }
-        { // splat
-            static long lastModTime5;
-            static const GLuint prog5 = glCreateProgram();
-            loadShaderB(&lastModTime5, prog5, SHADER_DIR"splat.glsl");
-            glUseProgram(prog5);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
 
@@ -279,3 +273,59 @@ int loadShaderB(long *lastModTime, GLuint prog, const char *filename)
 {
     return loadShaderX(loadShader2, lastModTime, prog, filename);
 }
+
+#include <glm/glm.hpp>
+#include <boost/container/vector.hpp>
+using boost::container::vector;
+using namespace glm;
+
+typedef struct{ uint _[5]; }Command;
+
+static const vec3 vertmap[] = {
+    {0,0,0},{1,0,0},{0,1,0},{1,1,0},
+    {0,0,1},{1,0,1},{0,1,1},{1,1,1},
+};
+
+static const ushort edgevmap[][2] = {
+    {0,1},{2,3},{4,5},{6,7},
+    {0,2},{1,3},{4,6},{5,7},
+    {0,4},{1,5},{2,6},{3,7},
+};
+
+void DrawGizmo()
+{
+    static GLuint prog, vbo, ebo, cbo, frame = 0;
+    static vector<Command> C;
+    if (!frame++)
+    {
+        vector<vec3> V;
+        vector<ushort> F;
+
+        uint firstIndex = 0;
+        uint baseVertex = 0;
+        V.assign(vertmap, vertmap + sizeof vertmap / sizeof *vertmap);
+        F.assign((ushort*)edgevmap, (ushort*)edgevmap + 24);
+        C.push_back({ (uint)F.size()-firstIndex, 1, firstIndex, baseVertex, 0 });
+
+        int loadShader2(GLuint, const char*);
+        prog = glCreateProgram();
+        assert( loadShader2(prog, SHADER_DIR"line.glsl") == 0 );
+
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &ebo);
+        glGenBuffers(1, &cbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof V[0] * V.size(), V.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(8);
+        glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, sizeof(vec3), 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof F[0] * F.size(), F.data(), GL_STATIC_DRAW);
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
+        glBufferData(GL_DRAW_INDIRECT_BUFFER, sizeof C[0] * C.size(), C.data(), GL_STATIC_DRAW);
+    }
+
+    glUseProgram(prog);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
+    glMultiDrawElementsIndirect(GL_LINES, GL_UNSIGNED_SHORT, NULL, C.size(), 0);
+};
