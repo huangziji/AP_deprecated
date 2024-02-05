@@ -41,13 +41,10 @@ flat _varying float v_id;
 
 #ifdef _VS
 layout (location = 8) in vec4 a_Vertex;
-layout (location = 3) in vec3 a_Scale;
-layout (location = 4) in vec3 a_Position;
-layout (location = 5) in mat3 a_Rotation;
 void main()
 {
     v_id = a_Vertex.w;
-    vec3 pos = a_Vertex.xyz * a_Scale * 1.01 * a_Rotation + a_Position;
+    vec3 pos = a_Vertex.xyz * 1.01;
     gl_Position = World2Clip(pos);
 }
 

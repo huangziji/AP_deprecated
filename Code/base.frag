@@ -151,11 +151,11 @@ void main()
         }
         else
         { // polygons
-            vec2 uv = matcap(rd, nor);
-            mate = textureLod(iChannel2, uv, 2.0).rgb;
+            // vec2 uv = matcap(rd, nor);
+            // mate = textureLod(iChannel2, uv, 0.).rgb;
             float id = gBuffer2.r * float(0xff);
-            mate *= 1.7 * palette(id/20., vec3(0.5,0.7,0.6), vec3(0.5,0.4,0.7),
-                    vec3(0.7,0.7,0.5), vec3(.8,.7,.1));
+            mate = palette(id/20., vec3(0.5,0.7,0.6), vec3(0.5,0.4,0.7),
+                vec3(0.7,0.7,0.5), vec3(.8,.7,.1));
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));
@@ -170,7 +170,7 @@ void main()
         col += vec3(0.5,0.6,0.9)*1.2 - rd.y*.4;
     }
 
-    col += i/50. * .1;
+    // col += i/50. * .1;
     col = mix(col, gBuffer1.rgb, gBuffer2.g); // blend with splats
     col = pow(col, vec3(0.4545));
     fragColor = vec4(col, 1);

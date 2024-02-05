@@ -83,6 +83,10 @@ float spline( const float *k, int n, float t )
 }
 
 typedef struct {
+    vec3 pos, nor;
+}Vertex;
+
+typedef struct {
     vec3 sca, pos;
     mat3 rot;
 }Instance;
@@ -94,6 +98,122 @@ typedef struct {
     uint baseVertex;
     uint baseInstance;
 }Command;
+
+
+static const mat3x3 cubemap[] = {
+    { 1,0,0, 0,1,0, 0,0,1, }, // forward
+    { -1,0,0, 0,1,0, 0,0,-1, }, // back
+    { 0,0,1, 0,1,0, -1,0,0, }, // right
+    { 0,0,-1, 0,1,0, 1,0,0, }, // left
+    { 1,0,0, 0,0,1, 0,-1,0, }, // top
+    { 1,0,0, 0,0,-1, 0,1,0, }, // bottom
+};
+
+static Command genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
+{
+
+    uint baseVertex = V.size();
+    uint firstIndex = F.size();
+
+    for (int i=0; i<6; i++)
+        for (int t=0; t<N; t++)
+            for (int s=0; s<N; s++)
+    {
+        vec3 uv = vec3(vec2(s,t)/(N-1.f)*2.f-1.f, 1) * cubemap[i];
+        uint idx = V.size() - baseVertex;
+        V.push_back({ uv, });
+        if (s != N-1 && t != N-1)
+        {
+            F.push_back(idx);
+            F.push_back(idx+1);
+            F.push_back(idx+N);
+            F.push_back(idx+N);
+            F.push_back(idx+1);
+            F.push_back(idx+1+N);
+        }
+    }
+
+    // generate normals
+    if (N <= 2)
+    {
+        for (size_t i=baseVertex; i<V.size(); i++)
+        {
+            V[i].nor = vec3(0);
+        }
+        for (size_t i=firstIndex; i<F.size(); i+=3)
+        {
+            int i0 = F[i+0] + baseVertex,
+                i1 = F[i+1] + baseVertex,
+                i2 = F[i+2] + baseVertex;
+            vec3 p0 = V[i0].pos,
+                 p1 = V[i1].pos,
+                 p2 = V[i2].pos;
+            vec3 nor = cross(p1-p0, p2-p1);
+            V[i0].nor += nor;
+            V[i1].nor += nor;
+            V[i2].nor += nor;
+        }
+        for (size_t i=baseVertex; i<V.size(); i++)
+        {
+            V[i].nor = normalize(V[i].nor);
+        }
+    }
+
+    return { (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 };
+}
+
+template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
+template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
+
+vector<Command> InitGeometry(GLuint &vbo, GLuint &ebo)
+{
+    vector<Command> C;
+    vector<Vertex> V;
+    vector<ushort> F;
+
+    uint firstIndex = 0;
+    uint baseVertex = 0;
+
+    C << genCubeMap(V, F, 2);
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    C << genCubeMap(V, F, 2);
+    for (uint i=baseVertex; i<V.size(); i++)
+    {
+        V[i].pos += vec3(0,1,0);
+        V[i].pos *= .5;
+    }
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    // sphere
+    C << genCubeMap(V, F, 10);
+    for (uint i=baseVertex; i<V.size(); i++)
+    {
+        vec3 uv = V[i].pos;
+        float sca = 1.;
+        vec3 h = vec3(0,0,0);
+        vec3 off = vec3(0,1,0)*h;
+        vec3 nor = normalize(uv);
+        vec3 pos = nor + sign(uv)*h;
+        V[i] = { (pos+off)*sca, nor };
+    }
+    firstIndex = F.size();
+    baseVertex = V.size();
+
+    glGenBuffers(1, &ebo);
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size() * sizeof F[0], F.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, V.size() * sizeof V[0], V.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
+    return C;
+}
 
 typedef struct {
     vec3 local;
@@ -198,10 +318,7 @@ const int bones[][3] = {
     Toe_L,Foot_L,1,
 };
 
-template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
-template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 int loadTexture(GLuint tex, const char *filename);
-vector<Command> InitGeometry(GLuint &vbo, GLuint &ebo);
 
 static vector<Node> gSkeleton;
 static GLuint ibo, vbo, ebo, cbo, tex, frame = 0;
@@ -224,7 +341,7 @@ extern "C" ivec4 mainGeometry()
         glGenTextures(1, &tex);
     }
 
-    int success = loadTexture(tex, "../gold2.png");
+    int success = loadTexture(tex, "../Metal.png");
     if (success)
     {
         glActiveTexture(GL_TEXTURE2);
@@ -251,43 +368,74 @@ extern "C" ivec4 mainGeometry()
 extern "C" void mainAnimation(float t)
 {
     vec3 ta = vec3(0,1,0);
-    float m = sin(t*3.0)*0.17 + 1.2;
+    float m = t;//sin(t*3.0)*0.17 + 1.2;
     vec3 ro = ta + vec3(sin(m),.5,cos(m))*1.5f;
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
 
     vector<vec3> world(Joint_Max, vec3(0));
     vector<mat3> local(Joint_Max, mat3(1));
-//    local[Hips] = rotateY(t);
-//    world[Hips] = joints[Hips] + vec3(0, -(sin(t)+1.)*.1, 0);
 
-    // Dispatch
-    for (int i=1; i<Joint_Max; i++)
+    for (int i : {
+         Wrist_R,
+         Wrist_L,
+         Foot_R,
+         Foot_L,})
+    {
+        world[i] = joints[i];
+        world[gSkeleton[i].parentId] = vec3(1,0,0);
+    }
+
+    world[Hips] = joints[Hips]-.2f*(sin(t)*.5f+.5f) * vec3(0,1,0);
+    world[Wrist_R] = joints[Wrist_R]*.8f;
+    world[Elbow_R] = vec3(0,-1,0);
+    world[Wrist_L] = joints[Wrist_L]*.8f;
+    world[Elbow_L] = vec3(0,1,0);
+
+    // rig
+    for (int i : {
+        // Hips,
+        Spine1,
+        Spine2,
+        Spine3,
+        Neck,
+        Head,
+        Head_End,
+        Shoulder_R,
+        Shoulder_L,
+        Leg_R,
+        Leg_L, })
     {
         int p = gSkeleton[i].parentId;
         world[i] = world[p] + gSkeleton[i].local * local[p];
         local[i] *= local[p];
     }
 
+    for (int i : {
+         Wrist_R,
+         Wrist_L,
+         Foot_R,
+         Foot_L,
+    })
     {
-        const float keys[] = {
-            -.2, -.2,-.1,0,.15,.2,.15,0,-.1,-.2, -.2,
-        };
-
-        float z = spline( keys, sizeof keys/sizeof *keys, fract(t) );
-        world[Foot_R] = joints[Foot_R] + vec3(0, z+.21, 0 );
-
-        int id = Foot_R;
-        vec3 dir = vec3(1,0,0);
-        int x = gSkeleton[id].parentId;
+        int x = gSkeleton[i].parentId;
         int o = gSkeleton[x].parentId;
+        vec3 dir = world[x];
         float r1 = length(gSkeleton[x].local);
-        float r2 = length(gSkeleton[id].local);
-        world[x] = world[o] + solve(world[id]-world[o], r1, r2, dir);
+        float r2 = length(gSkeleton[i].local);
+        world[x] = world[o] + solve(world[i]-world[o], r1, r2, dir);
 
-        float ir2 = 1. / dot(gSkeleton[id].local, gSkeleton[id].local);
-        local[id] = rotationAlign(world[id]-world[x], gSkeleton[id].local) * ir2;
-        world[Toe_R] = world[id] + gSkeleton[Toe_R].local * local[id];
+        float ir2 = 1. / dot(gSkeleton[i].local, gSkeleton[i].local);
+        local[i] = rotationAlign(world[i]-world[x], gSkeleton[i].local) * ir2;
+    }
+
+    for (int i : {
+        Toe_R,Toe_L,Hand_R,Hand_L,
+    })
+    {
+        int p = gSkeleton[i].parentId;
+        world[i] = world[p] + gSkeleton[i].local * local[p];
+        local[i] *= local[p];
     }
 
     vector<Instance> I;
