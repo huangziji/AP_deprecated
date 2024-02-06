@@ -1,66 +1,13 @@
+#include "common.h"
+
 #include <stdio.h>
 #include <glad/glad.h>
-#include <glm/glm.hpp>
 #include <boost/container/vector.hpp>
 using boost::container::vector;
-using namespace glm;
 
-/// @link https://www.shadertoy.com/view/4djSRW
-float hash11(float p)
-{
-    p = fract(p * .1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
-}
+template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
 
-/// @link https://iquilezles.org/articles/noacos/
-mat3x3 rotationAlign( vec3 d, vec3 z )
-{
-    vec3  v = cross( z, d );
-    float c = dot( z, d );
-    float k = 1.0f/(1.0f+c);
-
-    return mat3x3( v.x*v.x*k + c,     v.y*v.x*k - v.z,    v.z*v.x*k + v.y,
-                   v.x*v.y*k + v.z,   v.y*v.y*k + c,      v.z*v.y*k - v.x,
-                   v.x*v.z*k - v.y,   v.y*v.z*k + v.x,    v.z*v.z*k + c    );
-}
-
-/// @link https://iquilezles.org/articles/simpleik/
-vec3 solve( vec3 p, float r1, float r2, vec3 dir )
-{
-        vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
-
-        float s = r1*r1 - dot(q,q);
-        s = max( s, 0.0f );
-        q += sqrt(s)*normalize(cross(p,dir));
-
-        return q;
-}
-
-mat3 rotateX(float a)
-{
-    float c=cos(a), s=sin(a);
-    return mat3(1, 0, 0,
-                0, c, s,
-                0, -s, c);
-}
-
-mat3 rotateY(float a)
-{
-    float c=cos(a), s=sin(a);
-    return mat3(c, 0, s,
-                0, 1, 0,
-                -s, 0, c);
-}
-
-mat3 rotateZ(float a)
-{
-    float c=cos(a), s=sin(a);
-    return mat3(c, s, 0,
-                -s, c, 0,
-                0, 0, 1);
-}
+template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 
 // Catmull Rom
 static mat4 coefs = {
@@ -111,7 +58,6 @@ static const mat3x3 cubemap[] = {
 
 static Command genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
 {
-
     uint baseVertex = V.size();
     uint firstIndex = F.size();
 
@@ -160,59 +106,6 @@ static Command genCubeMap(vector<Vertex> &V, vector<ushort> &F, uint N)
     }
 
     return { (uint)F.size()-firstIndex, 0, firstIndex, baseVertex, 0 };
-}
-
-template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.push_back(b); return a; }
-template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
-
-vector<Command> InitGeometry(GLuint &vbo, GLuint &ebo)
-{
-    vector<Command> C;
-    vector<Vertex> V;
-    vector<ushort> F;
-
-    uint firstIndex = 0;
-    uint baseVertex = 0;
-
-    C << genCubeMap(V, F, 2);
-    firstIndex = F.size();
-    baseVertex = V.size();
-
-    C << genCubeMap(V, F, 2);
-    for (uint i=baseVertex; i<V.size(); i++)
-    {
-        V[i].pos += vec3(0,1,0);
-        V[i].pos *= .5;
-    }
-    firstIndex = F.size();
-    baseVertex = V.size();
-
-    // sphere
-    C << genCubeMap(V, F, 10);
-    for (uint i=baseVertex; i<V.size(); i++)
-    {
-        vec3 uv = V[i].pos;
-        float sca = 1.;
-        vec3 h = vec3(0,0,0);
-        vec3 off = vec3(0,1,0)*h;
-        vec3 nor = normalize(uv);
-        vec3 pos = nor + sign(uv)*h;
-        V[i] = { (pos+off)*sca, nor };
-    }
-    firstIndex = F.size();
-    baseVertex = V.size();
-
-    glGenBuffers(1, &ebo);
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size() * sizeof F[0], F.data(), GL_STATIC_DRAW);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, V.size() * sizeof V[0], V.data(), GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
-    return C;
 }
 
 typedef struct {
@@ -318,12 +211,11 @@ const int bones[][3] = {
     Toe_L,Foot_L,1,
 };
 
-int loadTexture(GLuint tex, const char *filename);
-
 static vector<Node> gSkeleton;
 static GLuint ibo, vbo, ebo, cbo, tex, frame = 0;
-static vector<Command> C = InitGeometry(vbo, ebo);
-extern "C" ivec4 mainGeometry()
+static vector<Command> C;
+
+extern "C" ivec4 mainGeometry(vector<float> &)
 {
     gSkeleton << Node{ {}, Null, Null, };
     for (int i=Hips; i<Joint_Max; i++)
@@ -336,9 +228,56 @@ extern "C" ivec4 mainGeometry()
 
     if (!frame++)
     {
+        glGenBuffers(1, &ebo);
+        glGenBuffers(1, &vbo);
         glGenBuffers(1, &ibo);
         glGenBuffers(1, &cbo);
         glGenTextures(1, &tex);
+    }
+
+    {
+        vector<Vertex> V;
+        vector<ushort> F;
+
+        uint firstIndex = 0;
+        uint baseVertex = 0;
+
+        C << genCubeMap(V, F, 2);
+        firstIndex = F.size();
+        baseVertex = V.size();
+
+        C << genCubeMap(V, F, 2);
+        for (uint i=baseVertex; i<V.size(); i++)
+        {
+            V[i].pos += vec3(0,1,0);
+            V[i].pos *= .5;
+        }
+        firstIndex = F.size();
+        baseVertex = V.size();
+
+        // sphere
+        C << genCubeMap(V, F, 10);
+        for (uint i=baseVertex; i<V.size(); i++)
+        {
+            vec3 uv = V[i].pos;
+            float sca = 1.;
+            vec3 h = vec3(0,0,0);
+            vec3 off = vec3(0,1,0)*h;
+            vec3 nor = normalize(uv);
+            vec3 pos = nor + sign(uv)*h;
+            V[i] = { (pos+off)*sca, nor };
+        }
+        firstIndex = F.size();
+        baseVertex = V.size();
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, F.size() * sizeof F[0], F.data(), GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, V.size() * sizeof V[0], V.data(), GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
     }
 
     int success = loadTexture(tex, "../Metal.png");
@@ -362,13 +301,13 @@ extern "C" ivec4 mainGeometry()
         glVertexAttribDivisor(i, 1);
     }
 
-    return { C.size(), cbo, ebo, 0 };
+    return { C.size(), cbo, 0, 0 };
 }
 
-extern "C" void mainAnimation(float t)
+extern "C" void mainAnimation(vector<vec3>& lines, float t)
 {
     vec3 ta = vec3(0,1,0);
-    float m = t;//sin(t*3.0)*0.17 + 1.2;
+    float m = sin(t*3.0)*0.17 + 1.2;
     vec3 ro = ta + vec3(sin(m),.5,cos(m))*1.5f;
     float data[] = { ro.x,ro.y,ro.z, 1.2, ta.x,ta.y,ta.z, 0 };
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(vec4), sizeof data , data);
@@ -455,21 +394,23 @@ extern "C" void mainAnimation(float t)
         I << Instance{ vec3(w, r, w), world[parentId], swi };
     }
 
-    C[1].instanceCount = I.size();
-
-    int size1;
-    int size2 = I.size() * sizeof I[0];
     glBindBuffer(GL_ARRAY_BUFFER, ibo);
-    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &size1);
-    if (size1 < size2)
+    int oldSize;
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
+    int newSize = I.size() * sizeof I[0];
+    if (oldSize < newSize)
     {
-        glBufferData(GL_ARRAY_BUFFER, size2, I.data(), GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, newSize, I.data(), GL_DYNAMIC_DRAW);
     }
     else
     {
-        glBufferSubData(GL_ARRAY_BUFFER, 0, size2, I.data());
+        glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, I.data());
     }
 
+    C[1].instanceCount = I.size();
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
     glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, C.size() * sizeof C[0], C.data());
+
+    lines << Aabb{ vec3(0,1.2,0), vec3(.2,1.5,.2) };
+    lines << BoundingSphere{ vec3(1.,1.2,0), .2 };
 }

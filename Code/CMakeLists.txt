@@ -4,26 +4,25 @@ project(AnimationPlayer)
 # include(../build/conan_toolchain.cmake)
 # include_directories(${CMAKE_INCLUDE_PATH})
 # find_package(PhysX REQUIRED)
-# find_package(imgui REQUIRED)
 
 set(CMAKE_PREFIX_PATH /home/ziji/.local/micromamba/envs/cxx)
 link_directories(${CMAKE_PREFIX_PATH}/lib)
+add_definitions(-DGLFW_INCLUDE_NONE)
 find_package(glfw3 REQUIRED)
 find_package(glad  REQUIRED)
 find_package(glm   REQUIRED)
 find_package(Boost REQUIRED)
-# find_package(Bullet REQUIRED)
-# find_package(sdl2 REQUIRED)
-# find_package(OpenAL REQUIRED)
-add_definitions(-DGLFW_INCLUDE_NONE)
 
-add_executable(${PROJECT_NAME} main.cpp)
-target_link_libraries(${PROJECT_NAME} glfw glad dl Common)
+add_executable(
+    ${PROJECT_NAME}
+    main.cpp
+    base.glsl
+    base.frag
+    line.glsl
+    shadowmap.glsl
+)
+target_link_libraries(${PROJECT_NAME} glfw glad dl)
 target_link_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-add_library(Module SHARED module.cpp)
-
-add_library(Common SHARED common.cpp
-    base.glsl base.frag line.glsl splat.glsl common.glsl shadowmap.glsl)
-target_link_libraries(Module Common)
-target_include_directories(Common PUBLIC ${CMAKE_PREFIX_PATH}/include)
+add_library(Module SHARED module.cpp common.cpp common.h)
+target_include_directories(Module PUBLIC ${CMAKE_PREFIX_PATH}/include)
