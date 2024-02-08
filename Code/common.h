@@ -24,6 +24,4 @@ mat3 rotateY(float a);
 
 mat3 rotateZ(float a);
 
-int loadTexture(uint tex, const char *filename);
-
 #endif // COMMON_H

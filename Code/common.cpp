@@ -1,31 +1,9 @@
 #include <stdio.h>
 #include <assert.h>
-#include <glad/glad.h>
 #include <boost/container/vector.hpp>
 using boost::container::vector;
 #include <glm/glm.hpp>
 using namespace glm;
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-int loadTexture(GLuint tex, const char *filename)
-{
-    int w, h, c;
-    uint8_t *data = stbi_load(filename, &w, &h, &c, STBI_rgb);
-    if (!data)
-    {
-        printf("file %s missing\n", filename);
-        return 0;
-    }
-
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, w,h);
-    glTexSubImage2D(GL_TEXTURE_2D, 0,0,0, w,h, GL_RGB, GL_UNSIGNED_BYTE, data);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    stbi_image_free(data);
-    return 1;
-}
 
 /************************************************************
  *                      Draw Gizmo                          *
@@ -89,6 +67,23 @@ vector<vec3> &operator<<(vector<vec3> &a, mat2x3 const& b)
     {
         a.push_back( Verts[Edges[i][0]] * d + b[0] );
         a.push_back( Verts[Edges[i][1]] * d + b[0] );
+    }
+    return a;
+}
+
+typedef struct{
+    mat3 orient; vec3 center;
+}Obb;
+
+vector<vec3> &operator<<(vector<vec3> &a, mat4x3 const& b)
+{
+    int N = sizeof Edges / sizeof *Edges;
+    for (int i=0; i<N; i++)
+    {
+        vec3 p1 = Verts[Edges[i][0]] * 2.f - 1.f;
+        vec3 p2 = Verts[Edges[i][1]] * 2.f - 1.f;
+        a.push_back( p1 * mat3(b) + b[3] );
+        a.push_back( p2 * mat3(b) + b[3] );
     }
     return a;
 }

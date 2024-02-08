@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 
 #include <glm/glm.hpp>
-using glm::vec3;
+using namespace glm;
 #include <boost/container/vector.hpp>
 using boost::container::vector;
 
@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
     glfwWindowHint(GLFW_SAMPLES, 4);
 //    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 
-    const int RES_X = 16*40, RES_Y = 9*40;
+    const int RES_X = 16*50, RES_Y = 9*50, RES_W = 1024;
     GLFWwindow *window1;
     { // window1
         int screenWidth, screenHeight;
@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
         glfwSetWindowPos(window1, screenWidth-RES_X, 0);
         glfwSetWindowAttrib(window1, GLFW_FLOATING, GLFW_TRUE);
         gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
-//        glfwSwapInterval(0);
+       // glfwSwapInterval(0);
     }
 
     GLuint bufferA, tex1, tex2;
@@ -58,7 +58,6 @@ int main(int argc, char *argv[])
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
-    const int RES_W = 1024;
     GLuint bufferB, tex3;
     {
         glGenTextures(1, &tex3);
@@ -77,18 +76,6 @@ int main(int argc, char *argv[])
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
-    {
-        GLuint vao;
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
-
-        const float data[16] = { RES_X,RES_Y,0,0, 1,1,1,1, };
-        GLuint ubo;
-        glGenBuffers(1, &ubo);
-        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-        glBufferData(GL_UNIFORM_BUFFER, sizeof data, data, GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
-    }
 
     while (!glfwWindowShouldClose(window1))
     {
@@ -102,14 +89,20 @@ int main(int argc, char *argv[])
             char title[32];
             sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
             glfwSetWindowTitle(window1, title);
-            glBufferSubData(GL_UNIFORM_BUFFER, sizeof(float)*2, sizeof(float), &iTime);
         }
 
-        typedef struct{ int x,y,z,w; }ivec4;
-        typedef void (plugFunction1)(vector<vec3>&, float);
-        typedef ivec4 (plugFunction2)();
-        static ivec4 ret = {};
-        static vector<vec3> appendBuffer;
+        typedef struct { uint _[5]; }CMD;
+        typedef struct {
+            float ca[8];
+            vector<vec3> line;
+            vector<CMD> cmd;
+            vector<mat4x3> xform;
+            vector<mat2x3> vertex;
+            vector<ushort> index;
+        }Output;
+        typedef void (plugFunction1)(Output &, float);
+        static Output out;
+
         {
             static void *libraryHandle = NULL;
             static long lastModTime;
@@ -132,8 +125,6 @@ int main(int argc, char *argv[])
 
                     mainAnimation = (plugFunction1*)dlsym(libraryHandle, "mainAnimation");
                     assert(mainAnimation);
-                    plugFunction2 *mainGeometry = (plugFunction2*)dlsym(libraryHandle, "mainGeometry");
-                    ret = mainGeometry ? mainGeometry() : ivec4{};
                 }
                 else
                 {
@@ -141,28 +132,95 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if (mainAnimation) mainAnimation(appendBuffer, iTime);
+            if (mainAnimation) mainAnimation(out, iTime);
+        }
+
+        static GLuint vao, vbo1, vbo2, ibo, ebo, ubo, cbo, frame;
+        if (!frame++)
+        {
+            glGenVertexArrays(1, &vao);
+            glBindVertexArray(vao);
+
+            glGenBuffers(1, &vbo1);
+            glGenBuffers(1, &vbo2);
+            glGenBuffers(1, &ubo);
+            glGenBuffers(1, &ebo);
+            glGenBuffers(1, &cbo);
+            glGenBuffers(1, &ibo);
+
+            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+            glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
+
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, out.index.size() * sizeof out.index[0], out.index.data(), GL_STATIC_DRAW);
+
+            glBindBuffer(GL_ARRAY_BUFFER, vbo1);
+            glBufferData(GL_ARRAY_BUFFER, out.vertex.size() * sizeof out.vertex[0], out.vertex.data(), GL_STATIC_DRAW);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(mat2x3), 0);
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(mat2x3), (void*)12);
+
+            glBindBuffer(GL_ARRAY_BUFFER, vbo2);
+            glEnableVertexAttribArray(8);
+            glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, 12, 0);
+
+            glBindBuffer(GL_ARRAY_BUFFER, ibo);
+            for (size_t off=0, i=4; i<8; i++, off+=12)
+            {
+                glEnableVertexAttribArray(i);
+                glVertexAttribPointer(i, 3, GL_FLOAT, GL_FALSE, sizeof(mat4x3), (void*)off);
+                glVertexAttribDivisor(i, 1);
+            }
         }
 
         {
-            static GLuint vbo, frame;
-            if (!frame++)
-            {
-                glGenBuffers(1, &vbo);
-            }
-            glBindBuffer(GL_ARRAY_BUFFER, vbo);
-            glEnableVertexAttribArray(8);
-            glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, 12, 0);
+            float data[16] = { RES_X,RES_Y,iTime,0, 1,1,1,1, };
+            memcpy(data+4, out.ca, sizeof(out.ca));
+            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof data, data);
+        }
+        {
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
             int oldSize;
-            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
-            int newSize = appendBuffer.size() * sizeof appendBuffer[0];
+            glGetBufferParameteriv(GL_DRAW_INDIRECT_BUFFER, GL_BUFFER_SIZE, &oldSize);
+            int newSize = out.cmd.size() * sizeof out.cmd[0];
             if (oldSize < newSize)
             {
-                glBufferData(GL_ARRAY_BUFFER, newSize, appendBuffer.data(), GL_DYNAMIC_DRAW);
+                glBufferData(GL_DRAW_INDIRECT_BUFFER, newSize, out.cmd.data(), GL_DYNAMIC_DRAW);
             }
             else
             {
-                glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, appendBuffer.data());
+                glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, newSize, out.cmd.data());
+            }
+        }
+        { // channel 4 5 6 7
+            glBindBuffer(GL_ARRAY_BUFFER, ibo);
+            int oldSize;
+            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
+            int newSize = out.xform.size() * sizeof out.xform[0];
+            if (oldSize < newSize)
+            {
+                glBufferData(GL_ARRAY_BUFFER, newSize, out.xform.data(), GL_DYNAMIC_DRAW);
+            }
+            else
+            {
+                glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, out.xform.data());
+            }
+        }
+        { // channel 8
+            glBindBuffer(GL_ARRAY_BUFFER, vbo2);
+            int oldSize;
+            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
+            int newSize = out.line.size() * sizeof out.line[0];
+            if (oldSize < newSize)
+            {
+                glBufferData(GL_ARRAY_BUFFER, newSize, out.line.data(), GL_DYNAMIC_DRAW);
+            }
+            else
+            {
+                glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, out.line.data());
             }
         }
 
@@ -171,7 +229,6 @@ int main(int argc, char *argv[])
         int reloadShader1(long*, GLuint, const char*);
         int reloadShader2(long*, GLuint, const char*);
 
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, ret.y);
 
         glDepthMask(1);
         glFrontFace(GL_CW);
@@ -186,30 +243,31 @@ int main(int argc, char *argv[])
             static const GLuint prog4 = glCreateProgram();
             reloadShader2(&lastModTime4, prog4, SHADER_DIR"shadowmap.glsl");
             glUseProgram(prog4);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, out.cmd.size(), 0);
         }
         glDepthFunc(GL_LESS);
         glFrontFace(GL_CCW);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glEnable(GL_BLEND);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferA);
-        glViewport(0,0, RES_X, RES_Y);
+        glViewport(0, 0, RES_X, RES_Y);
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
         { // geometry
             static long lastModTime2;
             static const GLuint prog2 = glCreateProgram();
             reloadShader2(&lastModTime2, prog2, SHADER_DIR"base.glsl");
             glUseProgram(prog2);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, ret.x, 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, out.cmd.size(), 0);
         }
         glDepthMask(0);
+        glPointSize(3.0);
+        glLineWidth(1.0);
         { // gizmo
             static long lastModTime;
             static GLuint prog = glCreateProgram();
             reloadShader2(&lastModTime, prog, SHADER_DIR"line.glsl");
             glUseProgram(prog);
-            glDrawArrays(GL_LINES, 0, appendBuffer.size());
-            appendBuffer.clear();
+            glDrawArrays(GL_LINES, 0, out.line.size());
         }
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
@@ -226,14 +284,12 @@ int main(int argc, char *argv[])
                 glProgramUniform1i(prog1, iChannel1, 1);
                 GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
                 glProgramUniform1i(prog1, iChannel2, 2);
-                GLint iChannel3 = glGetUniformLocation(prog1, "iChannel3");
-                glProgramUniform1i(prog1, iChannel3, 3);
             }
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, tex1);
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
-            glActiveTexture(GL_TEXTURE3);
+            glActiveTexture(GL_TEXTURE2);
             glBindTexture(GL_TEXTURE_2D, tex3);
             glUseProgram(prog1);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -412,4 +468,24 @@ int reloadShader1(long *lastModTime, GLuint prog, const char *filename)
 int reloadShader2(long *lastModTime, GLuint prog, const char *filename)
 {
     return reloadShaderX(loadShader2, lastModTime, prog, filename);
+}
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+int loadTexture(GLuint tex, const char *filename)
+{
+    int w, h, c;
+    uint8_t *data = stbi_load(filename, &w, &h, &c, STBI_rgb);
+    if (!data)
+    {
+        printf("file %s missing\n", filename);
+        return 0;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, w,h);
+    glTexSubImage2D(GL_TEXTURE_2D, 0,0,0, w,h, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    stbi_image_free(data);
+    return 1;
 }

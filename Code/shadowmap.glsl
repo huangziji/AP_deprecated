@@ -19,12 +19,11 @@ vec4 World2Clip(vec3 pos, vec3 rd)
 
 #ifdef _VS
 layout (location = 0) in vec3 a_Vertex;
-layout (location = 3) in vec3 a_Scale;
-layout (location = 4) in vec3 a_Position;
-layout (location = 5) in mat3 a_Rotation;
+layout (location = 4) in mat3 a_Rotation;
+layout (location = 7) in vec3 a_Position;
 void main()
 {
-    vec3 pos = a_Vertex.xyz * a_Scale * a_Rotation + a_Position;
+    vec3 pos = a_Vertex.xyz * a_Rotation + a_Position;
     gl_Position = World2Clip(pos, normalize(vec3(1,2,3)));
 }
 

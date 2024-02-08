@@ -18,11 +18,12 @@ mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
 
 mat4 getProjectionMatrix()
 {
+    float fov = 1.2;
     float n = 0.1, f = 1000.0;
     float p1 = (f+n)/(f-n);
     float p2 = -2.0*f*n/(f-n);
     float ar = iResolution.x/iResolution.y;
-    return mat4(_fov/ar, 0,0,0,0, _fov, 0,0,0,0, p1,1,0,0,p2,0);
+    return mat4(fov/ar, 0,0,0,0, fov, 0,0,0,0, p1,1,0,0,p2,0);
 }
 
 vec4 World2Clip(vec3 pos)
@@ -44,7 +45,7 @@ layout (location = 8) in vec4 a_Vertex;
 void main()
 {
     v_id = a_Vertex.w;
-    vec3 pos = a_Vertex.xyz * 1.01;
+    vec3 pos = a_Vertex.xyz;
     gl_Position = World2Clip(pos);
 }
 

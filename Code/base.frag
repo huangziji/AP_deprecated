@@ -1,5 +1,7 @@
 #version 300 es
 precision mediump float;
+precision mediump sampler2DArray;
+precision mediump sampler2DShadow;
 
 layout (std140) uniform INPUT {
     vec2 iResolution; float iTime, _pad1;
@@ -79,31 +81,30 @@ vec4 World2Clip(vec3 pos, vec3 rd)
     return vec4(ie,ie,-ie, 1.) * vec4((pos-ro)*ca, 1.);
 }
 
-precision mediump sampler2DShadow;
-uniform sampler2DShadow iChannel3;
-float calcShadow(vec3 ro, vec3 rd)
+float calcShadow(vec3 ro, vec3 rd, in sampler2DShadow samp)
 {
     float sha = 0.0;
     float count = 0.0;
-    vec2 mapSize = vec2(textureSize(iChannel3, 0));
+    vec2 mapSize = vec2(textureSize(samp, 0));
     vec4 shadowPos = World2Clip(ro, rd) * 0.5 + 0.5;
     for (int si = -2; si <= 2; ++si)
     for (int sj = -2; sj <= 2; ++sj)
     {
         vec4 sp = shadowPos + vec4(vec2(si,sj)/mapSize, vec2(-0.003,0.001));
-        sha += textureProj( iChannel3, sp );
+        sha += textureProj( samp, sp );
         count += 1.0;
     }
     return sha/count;
 }
 
-precision mediump sampler2DArray;
-const float fov = 1.2;
-uniform sampler2D iChannel0, iChannel2;
+
+uniform sampler2D iChannel0;
 uniform sampler2DArray iChannel1;
+uniform sampler2DShadow iChannel2;
 out vec4 fragColor;
 void main()
 {
+    const float fov = 1.2;
     vec2 screenUV = gl_FragCoord.xy/iResolution.xy;
     vec4 gBuffer1 = texture(iChannel1, vec3(screenUV, 0));
     vec4 gBuffer2 = texture(iChannel1, vec3(screenUV, 1));
@@ -159,7 +160,7 @@ void main()
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));
-        float sha = calcShadow( ro + rd*min(t, dep) + nor*.006, sun_dir ) * .7 + .3;
+        float sha = calcShadow( ro + rd*min(t, dep) + nor*.006, sun_dir, iChannel2 ) * .7 + .3;
 
 #define saturate(x) clamp(x,0.,1.)
         float sun_dif = saturate(dot(nor, sun_dir))*.9+.1;
