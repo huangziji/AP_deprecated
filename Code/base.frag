@@ -155,8 +155,7 @@ void main()
             // vec2 uv = matcap(rd, nor);
             // mate = textureLod(iChannel2, uv, 0.).rgb;
             float id = gBuffer2.r * float(0xff);
-            mate = palette(id/20., vec3(0.5,0.7,0.6), vec3(0.5,0.4,0.7),
-                vec3(0.7,0.7,0.5), vec3(.8,.7,.1));
+            mate = normalize(sin(vec3(1.44,41.322,142.212)*(id + 44.243)));
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));

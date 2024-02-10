@@ -38,14 +38,12 @@ vec4 World2Clip(vec3 pos)
 #define _varying in
 #endif
 
-flat _varying float v_id;
-
 #ifdef _VS
-layout (location = 8) in vec4 a_Vertex;
+layout (location = 8) in vec4 aVertex;
+uniform mat2x3 iCamera;
 void main()
 {
-    v_id = a_Vertex.w;
-    vec3 pos = a_Vertex.xyz;
+    vec3 pos = aVertex.xyz;
     gl_Position = World2Clip(pos);
 }
 
@@ -54,8 +52,8 @@ layout (location = 0) out vec4 fragColor;
 layout (location = 1) out vec4 id;
 void main()
 {
-    vec3 col = normalize(sin(vec3(13.144,412.32,141.212)*v_id));
-    fragColor = vec4(col, 1);
+    // vec3 col = normalize(sin(vec3(13.144,412.32,141.212)*v_id));
+    fragColor = vec4(1);
     id = vec4(1);
 }
 #endif

@@ -7,8 +7,6 @@
 
 #include <glm/glm.hpp>
 using namespace glm;
-#include <boost/container/vector.hpp>
-using boost::container::vector;
 
 static void error_callback(int _, const char* desc)
 {
@@ -79,31 +77,26 @@ int main(int argc, char *argv[])
 
     while (!glfwWindowShouldClose(window1))
     {
-        static uint32_t iFrame = 0;
         float iTime = glfwGetTime();
         {
+            static uint32_t frame = 0;
             static float fps, lastFrameTime = 0;
 
             float dt = iTime - lastFrameTime; lastFrameTime = iTime;
-            if ((iFrame++ & 0xf) == 0) fps = 1./dt;
+            if ((frame++ & 0xf) == 0) fps = 1./dt;
             char title[32];
             sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
             glfwSetWindowTitle(window1, title);
         }
 
-        typedef struct { uint _[5]; }CMD;
-        typedef struct {
-            float ca[8];
-            vector<vec3> line;
-            vector<CMD> cmd;
-            vector<mat4x3> xform;
-            vector<mat2x3> vertex;
-            vector<ushort> index;
-        }Output;
-        typedef void (plugFunction1)(Output &, float);
-        static Output out;
+        dvec4 iMouse;
+        glfwGetCursorPos(window1, &iMouse.x, &iMouse.y);
+        iMouse.z = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_LEFT);
+        iMouse.w = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_RIGHT);
 
+        ivec2 count = {};
         {
+            typedef ivec2 (plugFunction1)(float, vec2 res, vec4 m);
             static void *libraryHandle = NULL;
             static long lastModTime;
             static const char *libraryFilename="libModule.so";
@@ -132,95 +125,9 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if (mainAnimation) mainAnimation(out, iTime);
-        }
-
-        static GLuint vao, vbo1, vbo2, ibo, ebo, ubo, cbo, frame;
-        if (!frame++)
-        {
-            glGenVertexArrays(1, &vao);
-            glBindVertexArray(vao);
-
-            glGenBuffers(1, &vbo1);
-            glGenBuffers(1, &vbo2);
-            glGenBuffers(1, &ubo);
-            glGenBuffers(1, &ebo);
-            glGenBuffers(1, &cbo);
-            glGenBuffers(1, &ibo);
-
-            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-            glBufferData(GL_UNIFORM_BUFFER, 64, NULL, GL_DYNAMIC_DRAW);
-            glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo);
-
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, out.index.size() * sizeof out.index[0], out.index.data(), GL_STATIC_DRAW);
-
-            glBindBuffer(GL_ARRAY_BUFFER, vbo1);
-            glBufferData(GL_ARRAY_BUFFER, out.vertex.size() * sizeof out.vertex[0], out.vertex.data(), GL_STATIC_DRAW);
-            glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(mat2x3), 0);
-            glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(mat2x3), (void*)12);
-
-            glBindBuffer(GL_ARRAY_BUFFER, vbo2);
-            glEnableVertexAttribArray(8);
-            glVertexAttribPointer(8, 3, GL_FLOAT, GL_FALSE, 12, 0);
-
-            glBindBuffer(GL_ARRAY_BUFFER, ibo);
-            for (size_t off=0, i=4; i<8; i++, off+=12)
+            if (mainAnimation)
             {
-                glEnableVertexAttribArray(i);
-                glVertexAttribPointer(i, 3, GL_FLOAT, GL_FALSE, sizeof(mat4x3), (void*)off);
-                glVertexAttribDivisor(i, 1);
-            }
-        }
-
-        {
-            float data[16] = { RES_X,RES_Y,iTime,0, 1,1,1,1, };
-            memcpy(data+4, out.ca, sizeof(out.ca));
-            glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof data, data);
-        }
-        {
-            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, cbo);
-            int oldSize;
-            glGetBufferParameteriv(GL_DRAW_INDIRECT_BUFFER, GL_BUFFER_SIZE, &oldSize);
-            int newSize = out.cmd.size() * sizeof out.cmd[0];
-            if (oldSize < newSize)
-            {
-                glBufferData(GL_DRAW_INDIRECT_BUFFER, newSize, out.cmd.data(), GL_DYNAMIC_DRAW);
-            }
-            else
-            {
-                glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, newSize, out.cmd.data());
-            }
-        }
-        { // channel 4 5 6 7
-            glBindBuffer(GL_ARRAY_BUFFER, ibo);
-            int oldSize;
-            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
-            int newSize = out.xform.size() * sizeof out.xform[0];
-            if (oldSize < newSize)
-            {
-                glBufferData(GL_ARRAY_BUFFER, newSize, out.xform.data(), GL_DYNAMIC_DRAW);
-            }
-            else
-            {
-                glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, out.xform.data());
-            }
-        }
-        { // channel 8
-            glBindBuffer(GL_ARRAY_BUFFER, vbo2);
-            int oldSize;
-            glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &oldSize);
-            int newSize = out.line.size() * sizeof out.line[0];
-            if (oldSize < newSize)
-            {
-                glBufferData(GL_ARRAY_BUFFER, newSize, out.line.data(), GL_DYNAMIC_DRAW);
-            }
-            else
-            {
-                glBufferSubData(GL_ARRAY_BUFFER, 0, newSize, out.line.data());
+                count = mainAnimation(iTime, vec2(RES_X,RES_Y), iMouse);
             }
         }
 
@@ -228,7 +135,6 @@ int main(int argc, char *argv[])
 #define SHADER_DIR "../Code/"
         int reloadShader1(long*, GLuint, const char*);
         int reloadShader2(long*, GLuint, const char*);
-
 
         glDepthMask(1);
         glFrontFace(GL_CW);
@@ -243,7 +149,7 @@ int main(int argc, char *argv[])
             static const GLuint prog4 = glCreateProgram();
             reloadShader2(&lastModTime4, prog4, SHADER_DIR"shadowmap.glsl");
             glUseProgram(prog4);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, out.cmd.size(), 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, count.x, 0);
         }
         glDepthFunc(GL_LESS);
         glFrontFace(GL_CCW);
@@ -257,7 +163,7 @@ int main(int argc, char *argv[])
             static const GLuint prog2 = glCreateProgram();
             reloadShader2(&lastModTime2, prog2, SHADER_DIR"base.glsl");
             glUseProgram(prog2);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, out.cmd.size(), 0);
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, NULL, count.x, 0);
         }
         glDepthMask(0);
         glPointSize(3.0);
@@ -267,7 +173,7 @@ int main(int argc, char *argv[])
             static GLuint prog = glCreateProgram();
             reloadShader2(&lastModTime, prog, SHADER_DIR"line.glsl");
             glUseProgram(prog);
-            glDrawArrays(GL_LINES, 0, out.line.size());
+            glDrawArrays(GL_LINES, 0, count.y);
         }
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
@@ -443,6 +349,7 @@ int loadShader2(GLuint prog, const char *filename)
     glValidateProgram(prog);
     return 0;
 }
+
 int reloadShaderX(typeof loadShader1 f, long *lastModTime, GLuint prog, const char *filename)
 {
     struct stat libStat;

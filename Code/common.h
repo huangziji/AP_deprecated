@@ -5,12 +5,22 @@ using boost::container::vector;
 #include <glm/glm.hpp>
 using namespace glm;
 
-typedef mat2x3 Aabb;
-typedef vec4 BoundingSphere;
+typedef struct {
+    vec3 pos, nor;
+}Vertex;
+typedef unsigned short Index;
 
-vector<vec3> &operator<<(vector<vec3> &a, Aabb const& b);
+void lBox(vector<vec3> & V, mat3 rot, vec3 pos);
 
-vector<vec3> &operator<<(vector<vec3> &a, BoundingSphere const& b);
+void lCircle(vector<vec3> & V, vec3 ce, float r, vec3 dir);
+
+void lSphere(vector<vec3> & V, vec3 ce, float r);
+
+void lCapsule(vector<vec3> & V, vec3 a, vec3 b, float r);
+
+void tCubeMap(vector<Vertex> & V, vector<Index> & F, int N);
+
+void tCapsule(vector<Vertex> & V, vector<Index> & F, float t);
 
 float hash11(float p);
 
@@ -23,5 +33,7 @@ mat3 rotateX(float a);
 mat3 rotateY(float a);
 
 mat3 rotateZ(float a);
+
+float spline( const float *k, int n, float t );
 
 #endif // COMMON_H

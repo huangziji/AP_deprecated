@@ -39,21 +39,20 @@ vec4 World2Clip(vec3 pos)
 #define _varying in
 #endif
 
-_varying vec3 v_Position;
-_varying vec3 v_Normal;
-flat _varying int v_Id;
+_varying vec3 vNormal;
+flat _varying int vId;
 
 #ifdef _VS
-layout (location = 0) in vec3 a_Vertex;
-layout (location = 1) in vec3 a_Normal;
-layout (location = 4) in mat3 a_Rotation;
-layout (location = 7) in vec3 a_Position;
+layout (location = 0) in vec3 aVertex;
+layout (location = 1) in vec3 aNormal;
+layout (location = 4) in mat3 aRotation;
+layout (location = 7) in vec3 aPosition;
 void main()
 {
-    v_Id = gl_InstanceID;
-    v_Normal = a_Normal * a_Rotation;
-    v_Position = a_Vertex.xyz * a_Rotation + a_Position;
-    gl_Position = World2Clip(v_Position);
+    vId = gl_InstanceID;
+    vNormal = aNormal * aRotation;
+    vec3 pos = aVertex.xyz * aRotation + aPosition;
+    gl_Position = World2Clip(pos);
 }
 
 #else
@@ -61,8 +60,8 @@ layout (location = 0) out vec4 fragColor;
 layout (location = 1) out vec4 id;
 void main(void)
 {
-    vec3 nor = normalize(v_Normal);
+    vec3 nor = normalize(vNormal);
     fragColor = vec4(nor, 1.);
-    id = vec4(float(v_Id)/float(0xff), vec2(0.), 1);
+    id = vec4(float(vId)/float(0xff), vec2(0.), 1);
 }
 #endif
