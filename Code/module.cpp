@@ -53,24 +53,74 @@ typedef enum {
 
 
 #include <glad/glad.h>
+#include <PxPhysicsAPI.h>
+using namespace physx;
 
 extern "C" ivec2 mainAnimation(float t, vec2 res, vec4 iMouse)
 {
+    static PxScene *ps;
+    static PxRigidDynamic *body;
+    static int frame = 0;
+    if (!frame++)
+    {
+        static PxDefaultAllocator allocator;
+        static PxDefaultErrorCallback errorCallback;
+        PxFoundation *fd = PxCreateFoundation(PX_PHYSICS_VERSION, allocator, errorCallback);
+        PxPhysics *sdk = PxCreatePhysics(PX_PHYSICS_VERSION, *fd, PxTolerancesScale(), true);
+
+        PxSceneDesc desc = PxSceneDesc(sdk->getTolerancesScale());
+        desc.gravity = PxVec3(0, -10.0, 0);
+        desc.cpuDispatcher = PxDefaultCpuDispatcherCreate(2);
+        desc.filterShader = PxDefaultSimulationFilterShader;
+        ps = sdk->createScene(desc);
+        ps->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_POINT, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_NORMAL, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_ERROR, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_FORCE, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eACTOR_AXES, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_SHAPES, 1.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eJOINT_LOCAL_FRAMES, 5.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eJOINT_LIMITS, 5.0);
+        ps->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_AXES, 1.0);
+
+        PxMaterial *mate = sdk->createMaterial(.5,.5,.5);
+        PxRigidStatic *ground = PxCreatePlane(*sdk, PxPlane(0,1,0,0.05), *mate);
+        ps->addActor(*ground);
+
+        PxShape *shape = sdk->createShape(PxCapsuleGeometry(.2,.3), *mate);
+        body = sdk->createRigidDynamic(PxTransform(0,5,0));
+        body->setMass(1.);
+        body->attachShape(*shape);
+        ps->addActor(*body);
+    }
+
+    static float lastFrameTime = 0;
+    float dt = t - lastFrameTime;
+    lastFrameTime = t;
+
+    ps->simulate(dt);
+    ps->fetchResults(true);
+
+    vector<vec3> U;
+    PxQuat q = body->getGlobalPose().q;
+    PxVec3 p = body->getGlobalPose().p;
+    PxVec3 a = q.rotate(p + PxVec3(1,0,0)*.3);
+    PxVec3 b = q.rotate(p - PxVec3(1,0,0)*.3);
+    lCapsule(U, (vec3&)a, (vec3&)b, .2);
+
     vec3 ta = vec3(0,1,0);
     float m = t;//sin(t*3.0)*0.17 + .5;
     vec3 ro = ta + vec3(sin(m),.5,cos(m))*1.5f;
 
-    vector<vec3> U;
     vector<Instance> I;
 
-    // extern const vec3 joints[];
     extern const IkRig parentTable[];
     extern const bool hasMesh[];
     extern const vector<vec3> jointsLocal;
 
     vector<vec3> world(Joint_Max, vec3(0));
     vector<mat3> local(Joint_Max, mat3(1));
-    // local[Hips] = rotateY(t);
 
     for (int i=Hips; i<Joint_Max; i++)
     {

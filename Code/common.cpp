@@ -157,6 +157,14 @@ void tCapsule(vector<Vertex> &V, vector<Index> &F, float t)
     }
 }
 
+void opElongate(vector<Vertex> &V, vec3 h)
+{
+    for (Vertex & vert : V)
+    {
+        vert.pos += sign(vert.pos)*h;
+    }
+}
+
 /************************************************************
  *                       Utilities                          *
 ************************************************************/
@@ -185,13 +193,13 @@ mat3x3 rotationAlign( vec3 d, vec3 z )
 /// @link https://iquilezles.org/articles/simpleik/
 vec3 solve( vec3 p, float r1, float r2, vec3 dir )
 {
-        vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
+    vec3 q = p*( 0.5f + 0.5f*(r1*r1-r2*r2)/dot(p,p) );
 
-        float s = r1*r1 - dot(q,q);
-        s = max( s, 0.0f );
-        q += sqrt(s)*normalize(cross(p,dir));
+    float s = r1*r1 - dot(q,q);
+    s = max( s, 0.0f );
+    q += sqrt(s)*normalize(cross(p,dir));
 
-        return q;
+    return q;
 }
 
 mat3 rotateX(float a)
