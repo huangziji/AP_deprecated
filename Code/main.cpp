@@ -8,6 +8,10 @@
 #include <glm/glm.hpp>
 using namespace glm;
 
+#include <btBulletDynamicsCommon.h>
+#include <BulletSoftBody/btSoftRigidDynamicsWorld.h>
+#include <BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.h>
+
 static void error_callback(int _, const char* desc)
 {
     fprintf(stderr, "ERROR: %s\n", desc);
@@ -15,6 +19,30 @@ static void error_callback(int _, const char* desc)
 
 int main(int argc, char *argv[])
 {
+    btSoftBodyRigidBodyCollisionConfiguration conf;
+    btDbvtBroadphase overlappingPairCache;
+    btSequentialImpulseConstraintSolver solver;
+    btCollisionDispatcher dispatcher = btCollisionDispatcher(&conf);
+    btSoftRigidDynamicsWorld *dynamicWorld = new btSoftRigidDynamicsWorld(&dispatcher, &overlappingPairCache, &solver, &conf);
+
+    btContactSolverInfo &solverInfo = dynamicWorld->getSolverInfo();
+    solverInfo.m_solverMode |= SOLVER_RANDMIZE_ORDER;
+    solverInfo.m_splitImpulse = true;
+
+    btDispatcherInfo &dispatcherInfo = dynamicWorld->getDispatchInfo();
+    dispatcherInfo.m_enableSatConvex = true;
+
+    btSoftBodyWorldInfo &softWorldInfo = dynamicWorld->getWorldInfo();
+    softWorldInfo.air_density = btScalar(1.2f);
+    softWorldInfo.water_density = 0;
+    softWorldInfo.water_offset = 0;
+    softWorldInfo.water_normal = btVector3(0, 0, 0);
+    softWorldInfo.m_sparsesdf.Initialize();
+
+
+    void Geometry_Init();
+    Geometry_Init();
+
     glfwInit();
     glfwSetErrorCallback(error_callback);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -78,12 +106,12 @@ int main(int argc, char *argv[])
     while (!glfwWindowShouldClose(window1))
     {
         float iTime = glfwGetTime();
+        static uint32_t iFrame = -1;
         {
-            static uint32_t frame = 0;
             static float fps, lastFrameTime = 0;
 
             float dt = iTime - lastFrameTime; lastFrameTime = iTime;
-            if ((frame++ & 0xf) == 0) fps = 1./dt;
+            if ((iFrame++ & 0xf) == 0) fps = 1./dt;
             char title[32];
             sprintf(title, "%.2f\t\t%.1f fps\t\t%d x %d", iTime, fps, RES_X, RES_Y);
             glfwSetWindowTitle(window1, title);
@@ -93,13 +121,13 @@ int main(int argc, char *argv[])
         glfwGetCursorPos(window1, &iMouse.x, &iMouse.y);
         iMouse.z = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_LEFT);
         iMouse.w = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_RIGHT);
-
         ivec2 count = {};
+
         {
-            typedef ivec2 (plugFunction1)(float, vec2 res, vec4 m);
             static void *libraryHandle = NULL;
             static long lastModTime;
             static const char *libraryFilename="libModule.so";
+            typedef ivec2 (plugFunction1)(float t, uint32_t iFrame, vec2 res, vec4 m, btSoftRigidDynamicsWorld *);
             static plugFunction1 *mainAnimation = NULL;
 
             struct stat libStat;
@@ -127,7 +155,7 @@ int main(int argc, char *argv[])
 
             if (mainAnimation)
             {
-                count = mainAnimation(iTime, vec2(RES_X,RES_Y), iMouse);
+                count = mainAnimation(iTime, iFrame, vec2(RES_X,RES_Y), iMouse, dynamicWorld);
             }
         }
 

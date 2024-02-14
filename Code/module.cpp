@@ -51,67 +51,122 @@ typedef enum {
     Joint_Max,
 }IkRig;
 
+static const int RagdollJoints[][2] = {
+    Hips, Neck,
+    Head, Head_End,
+
+    Shoulder_L, Elbow_L,
+    Elbow_L, Wrist_L,
+    Wrist_L, Hand_L,
+    Leg_L, Knee_L,
+    Knee_L, Ankle_L,
+    Ankle_L, Toe_L,
+
+    Shoulder_R, Elbow_R,
+    Elbow_R, Wrist_R,
+    Wrist_R, Hand_R,
+    Leg_R, Knee_R,
+    Knee_R, Ankle_R,
+    Ankle_R, Toe_R,
+};
 
 #include <glad/glad.h>
-#include <PxPhysicsAPI.h>
-using namespace physx;
+#include <btBulletDynamicsCommon.h>
+#include <BulletSoftBody/btSoftRigidDynamicsWorld.h>
+void Geometry_Init();
 
-extern "C" ivec2 mainAnimation(float t, vec2 res, vec4 iMouse)
+extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, btSoftRigidDynamicsWorld *dynamicWorld)
 {
-    static PxScene *ps;
-    static PxRigidDynamic *body;
     static int frame = 0;
-    if (!frame++)
+    if (frame++ == 0)
     {
-        static PxDefaultAllocator allocator;
-        static PxDefaultErrorCallback errorCallback;
-        PxFoundation *fd = PxCreateFoundation(PX_PHYSICS_VERSION, allocator, errorCallback);
-        PxPhysics *sdk = PxCreatePhysics(PX_PHYSICS_VERSION, *fd, PxTolerancesScale(), true);
+        Geometry_Init();
 
-        PxSceneDesc desc = PxSceneDesc(sdk->getTolerancesScale());
-        desc.gravity = PxVec3(0, -10.0, 0);
-        desc.cpuDispatcher = PxDefaultCpuDispatcherCreate(2);
-        desc.filterShader = PxDefaultSimulationFilterShader;
-        ps = sdk->createScene(desc);
-        ps->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_POINT, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_NORMAL, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_ERROR, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCONTACT_FORCE, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eACTOR_AXES, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_SHAPES, 1.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eJOINT_LOCAL_FRAMES, 5.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eJOINT_LIMITS, 5.0);
-        ps->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_AXES, 1.0);
+        btTransform Identity;
+        Identity.setIdentity();
 
-        PxMaterial *mate = sdk->createMaterial(.5,.5,.5);
-        PxRigidStatic *ground = PxCreatePlane(*sdk, PxPlane(0,1,0,0.05), *mate);
-        ps->addActor(*ground);
+        dynamicWorld->setGravity(btVector3(0,-10,0));
+        btStaticPlaneShape *plane = new btStaticPlaneShape(btVector3(0,1,0), -0.05);
+        btMotionState *state = new btDefaultMotionState( Identity, Identity );
+        // btRigidBodyConstructionInfo;
+        btRigidBody *ground = new btRigidBody(0., state, plane);
+        ground->setDamping(.1, .1);
+        ground->setFriction(.5);
+        ground->setRestitution(.5);
+        dynamicWorld->addRigidBody(ground);
 
-        PxShape *shape = sdk->createShape(PxCapsuleGeometry(.2,.3), *mate);
-        body = sdk->createRigidDynamic(PxTransform(0,5,0));
-        body->setMass(1.);
-        body->attachShape(*shape);
-        ps->addActor(*body);
+        btTransform x;
+        x.setIdentity();
+        x.setOrigin(btVector3(1, 5, 0));
+        state = new btDefaultMotionState( x, Identity );
+        btCollisionShape *shape = new btBoxShape(btVector3(0.2, 0.2, 0.2));
+        btRigidBody *body1 = new btRigidBody(1., state, shape);
+        body1->setDamping(.0, .0);
+        body1->setFriction(.1);
+        body1->setRestitution(1.);
+        dynamicWorld->addRigidBody(body1);
+
+        x.setOrigin(btVector3(-1, 5, 0));
+        state = new btDefaultMotionState( x, Identity );
+        shape = new btSphereShape(0.3);
+        btRigidBody *body2 = new btRigidBody(1., state, shape);
+        body2->setDamping(0, 0);
+        body2->setFriction(.1);
+        body2->setRestitution(1.);
+        dynamicWorld->addRigidBody(body2);
+
+        btVector3 axis;
+        // btTypedObject *cone = new btConeTwistConstraint(*body2, x);
+        // btHingeConstraint *hinge1 = new btHingeConstraint(*body2, axis, axis);
+        // btHinge2Constraint hinge2 = btHinge2Constraint(*body2, *body1, axis, axis, axis);
+        // printf("Hot loading\n");
     }
 
     static float lastFrameTime = 0;
     float dt = t - lastFrameTime;
     lastFrameTime = t;
 
-    ps->simulate(dt);
-    ps->fetchResults(true);
+    dynamicWorld->stepSimulation(dt);
+#if 1
 
     vector<vec3> U;
-    PxQuat q = body->getGlobalPose().q;
-    PxVec3 p = body->getGlobalPose().p;
-    PxVec3 a = q.rotate(p + PxVec3(1,0,0)*.3);
-    PxVec3 b = q.rotate(p - PxVec3(1,0,0)*.3);
-    lCapsule(U, (vec3&)a, (vec3&)b, .2);
+    btCollisionObjectArray const& arr = dynamicWorld->getCollisionObjectArray();
+    for (int i=0; i<arr.size(); i++)
+    {
+        btRigidBody *body = btRigidBody::upcast(arr[i]);
+        btCollisionShape *shape = body->getCollisionShape();
+        btVector3 half1 = ((btBoxShape*)shape)->getHalfExtentsWithMargin();
+        float radi1 = ((btSphereShape*)shape)->getRadius();
+        float radi2 = ((btCapsuleShape*)shape)->getRadius();
+        btTransform pose = body->getWorldTransform();
+        btMatrix3x3 q = btMatrix3x3(pose.getRotation());
+        btVector3 p = pose.getOrigin();
+
+        switch (shape->getShapeType())
+        {
+        case BOX_SHAPE_PROXYTYPE:
+            lBox(U, mat3(.2), (vec3&)p);
+            break;
+        case SPHERE_SHAPE_PROXYTYPE:
+            lSphere(U, (vec3&)p, radi1);
+            break;
+        case CAPSULE_SHAPE_PROXYTYPE:
+            btVector3 half2 = ((btCapsuleShape*)shape)->getHalfHeight() * btVector3(1,0,0);
+            btVector3 a = p - q * half2;
+            btVector3 b = p + q * half2;
+            lCapsule(U, (vec3&)a, (vec3&)b, radi2);
+            break;
+        }
+    }
+#endif
+       // vector<vec3> U;
+
+    // -------------------Camera-------------------//
 
     vec3 ta = vec3(0,1,0);
-    float m = t;//sin(t*3.0)*0.17 + .5;
-    vec3 ro = ta + vec3(sin(m),.5,cos(m))*1.5f;
+    vec2 mouse = clamp((vec2)iMouse, vec2(0), res);
+    vec2 m = mouse / res * float(M_PI) * 2.0f + 1.13f;
+    vec3 ro = ta + vec3(sin(m.x),.5,cos(m.x)) * 2.5f;
 
     vector<Instance> I;
 
@@ -131,14 +186,14 @@ extern "C" ivec2 mainAnimation(float t, vec2 res, vec4 iMouse)
 
     for (int i=0; i<Joint_Max; i++)
     {
-        if (!hasMesh[i]) { continue; }
+        if (!hasMesh[i]) continue;
 
         int p = parentTable[i];
         float w = .2 + hash11(i + 349) * .1;
             w *= 1 - (i>Shoulder_R || p == Neck) * .5;
         float r = length(jointsLocal[i]);
         mat3 rot = rotationAlign(jointsLocal[i]/r, vec3(0,0,1));
-        vec3 sca = abs(rot * vec3(w, w, r)) * .5f;
+        vec3 sca = abs(rot * vec3(w,w,r)) * .5f;
 
         mat3 swi = matrixCompMult(local[i], mat3(sca,sca,sca));
         vec3 ce = mix(world[i], world[p], .5f);
