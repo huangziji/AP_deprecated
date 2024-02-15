@@ -57,11 +57,11 @@ void main()
 
 #else
 layout (location = 0) out vec4 fragColor;
-layout (location = 1) out vec4 id;
+layout (location = 1) out vec4 bufferB;
 void main(void)
 {
-    vec3 nor = normalize(vNormal);
+    vec3 nor = normalize(vNormal) * .5 + .5;
     fragColor = vec4(nor, 1.);
-    id = vec4(float(vId)/float(0xff), vec2(0.), 1);
+    bufferB = vec4(float(vId)/float(0xff), vec2(0.), 1);
 }
 #endif

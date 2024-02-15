@@ -5,6 +5,15 @@ template<class T> static vector<T> &operator<<(vector<T> &a, T const& b) { a.pus
 
 template<class T> static vector<T> &operator, (vector<T> &a, T const& b) { return a << b; }
 
+/// @link https://www.shadertoy.com/view/4djSRW
+float hash11(float p)
+{
+    p = fract(p * .1031);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
+}
+
 typedef struct {
     mat3 rot;
     vec3 pos;
@@ -70,26 +79,80 @@ static const int RagdollJoints[][2] = {
     Ankle_R, Toe_R,
 };
 
+typedef struct {
+    vec3 lowerBound, upperBound;
+}Aabb;
+
+typedef struct {
+    Aabb box;
+    int parentIndex;
+    int child1;
+    int child2;
+    bool isLeaf;
+}Node;
+
+struct AabbTree
+{
+    enum { NullIndex = -1 };
+    vector<Node> _nodes;
+    uint _rootIndex = NullIndex;
+
+    void InsertLeaf(Aabb box)
+    {
+        const int leafIndex = _nodes.size();
+        _nodes.push_back({ box, NullIndex, NullIndex, NullIndex, true });
+        if (_rootIndex == NullIndex)
+        {
+            _rootIndex = leafIndex;
+            return;
+        }
+    }
+};
+
 #include <glad/glad.h>
 #include <btBulletDynamicsCommon.h>
 #include <BulletSoftBody/btSoftRigidDynamicsWorld.h>
-void Geometry_Init();
 
-extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, btSoftRigidDynamicsWorld *dynamicWorld)
+void _init()
 {
+// place holders, this solve some dynamic linking problem
+// where program crashes while adding or removing constraints
+// my guess is some lazy initialization were performed during constraint creation
+// this will probably different from compiler to compiler
+    btTransform x;
+    x.setIdentity();
+    btVector3 p = x.getOrigin();
+    btRigidBody rb = btRigidBody(0., NULL, NULL);
+    btTypedConstraint *joint1 = new btConeTwistConstraint(rb, x);
+    btTypedConstraint *joint2 = new btHingeConstraint(rb, p, p);
+    btTypedConstraint *joint3 = new btFixedConstraint(rb, rb, x, x);
+    btTypedConstraint *joint4 = new btGearConstraint(rb, rb, p, p);
+    btTypedConstraint *joint5 = new btSliderConstraint(rb, rb, x, x, false);
+    btTypedConstraint *joint6 = new btPoint2PointConstraint(rb, rb, p, p);
+    btTypedConstraint *joint7 = new btGeneric6DofConstraint(rb, rb, x, x, false);
+}
+
+extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, btDynamicsWorld *dynamicWorld)
+{
+    if (iFrame == 0)
+    {
+        btContactSolverInfo &solverInfo = dynamicWorld->getSolverInfo();
+        solverInfo.m_solverMode |= SOLVER_RANDMIZE_ORDER;
+        solverInfo.m_splitImpulse = true;
+
+        btDispatcherInfo &dispatcherInfo = dynamicWorld->getDispatchInfo();
+        dispatcherInfo.m_enableSatConvex = true;
+    }
+
     static int frame = 0;
     if (frame++ == 0)
     {
-        Geometry_Init();
-
         btTransform Identity;
         Identity.setIdentity();
 
-        dynamicWorld->setGravity(btVector3(0,-10,0));
-        btStaticPlaneShape *plane = new btStaticPlaneShape(btVector3(0,1,0), -0.05);
-        btMotionState *state = new btDefaultMotionState( Identity, Identity );
-        // btRigidBodyConstructionInfo;
-        btRigidBody *ground = new btRigidBody(0., state, plane);
+        btRigidBody *ground = new btRigidBody( 0,
+            new btDefaultMotionState( Identity, Identity ),
+            new btStaticPlaneShape(btVector3(0,1,0), -0.05) );
         ground->setDamping(.1, .1);
         ground->setFriction(.5);
         ground->setRestitution(.5);
@@ -97,29 +160,24 @@ extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, 
 
         btTransform x;
         x.setIdentity();
+
         x.setOrigin(btVector3(1, 5, 0));
-        state = new btDefaultMotionState( x, Identity );
-        btCollisionShape *shape = new btBoxShape(btVector3(0.2, 0.2, 0.2));
-        btRigidBody *body1 = new btRigidBody(1., state, shape);
-        body1->setDamping(.0, .0);
-        body1->setFriction(.1);
-        body1->setRestitution(1.);
-        dynamicWorld->addRigidBody(body1);
+        btRigidBody *rb1 = new btRigidBody( .5,
+            new btDefaultMotionState( x, Identity ),
+            new btCapsuleShape(.2, .3));
+        rb1->setDamping(.2, .2);
+        rb1->setFriction(.5);
+        rb1->setRestitution(.5);
+        dynamicWorld->addRigidBody(rb1);
 
         x.setOrigin(btVector3(-1, 5, 0));
-        state = new btDefaultMotionState( x, Identity );
-        shape = new btSphereShape(0.3);
-        btRigidBody *body2 = new btRigidBody(1., state, shape);
-        body2->setDamping(0, 0);
-        body2->setFriction(.1);
-        body2->setRestitution(1.);
-        dynamicWorld->addRigidBody(body2);
-
-        btVector3 axis;
-        // btTypedObject *cone = new btConeTwistConstraint(*body2, x);
-        // btHingeConstraint *hinge1 = new btHingeConstraint(*body2, axis, axis);
-        // btHinge2Constraint hinge2 = btHinge2Constraint(*body2, *body1, axis, axis, axis);
-        // printf("Hot loading\n");
+        btRigidBody *rb2 = new btRigidBody( .5,
+            new btDefaultMotionState( x, Identity ),
+            new btSphereShape(0.3));
+        rb2->setDamping(.2, .2);
+        rb2->setFriction(.5);
+        rb2->setRestitution(.5);
+        dynamicWorld->addRigidBody(rb2);
     }
 
     static float lastFrameTime = 0;
@@ -127,7 +185,6 @@ extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, 
     lastFrameTime = t;
 
     dynamicWorld->stepSimulation(dt);
-#if 1
 
     vector<vec3> U;
     btCollisionObjectArray const& arr = dynamicWorld->getCollisionObjectArray();
@@ -151,21 +208,18 @@ extern "C" ivec2 mainAnimation(float t, uint32_t iFrame, vec2 res, vec4 iMouse, 
             lSphere(U, (vec3&)p, radi1);
             break;
         case CAPSULE_SHAPE_PROXYTYPE:
-            btVector3 half2 = ((btCapsuleShape*)shape)->getHalfHeight() * btVector3(1,0,0);
-            btVector3 a = p - q * half2;
-            btVector3 b = p + q * half2;
+            btVector3 half2 = ((btCapsuleShape*)shape)->getHalfHeight() * btVector3(0,1,0);
+            btVector3 a = p - half2 * q;
+            btVector3 b = p + half2 * q;
             lCapsule(U, (vec3&)a, (vec3&)b, radi2);
             break;
         }
     }
-#endif
-       // vector<vec3> U;
 
-    // -------------------Camera-------------------//
+    // ------------------------------Camera------------------------------//
 
     vec3 ta = vec3(0,1,0);
-    vec2 mouse = clamp((vec2)iMouse, vec2(0), res);
-    vec2 m = mouse / res * float(M_PI) * 2.0f + 1.13f;
+    vec2 m = (vec2&)iMouse / res * float(M_PI) * 2.0f + 1.13f;
     vec3 ro = ta + vec3(sin(m.x),.5,cos(m.x)) * 2.5f;
 
     vector<Instance> I;

@@ -19,29 +19,10 @@ static void error_callback(int _, const char* desc)
 
 int main(int argc, char *argv[])
 {
-    btSoftBodyRigidBodyCollisionConfiguration conf;
-    btDbvtBroadphase overlappingPairCache;
-    btSequentialImpulseConstraintSolver solver;
-    btCollisionDispatcher dispatcher = btCollisionDispatcher(&conf);
-    btSoftRigidDynamicsWorld *dynamicWorld = new btSoftRigidDynamicsWorld(&dispatcher, &overlappingPairCache, &solver, &conf);
-
-    btContactSolverInfo &solverInfo = dynamicWorld->getSolverInfo();
-    solverInfo.m_solverMode |= SOLVER_RANDMIZE_ORDER;
-    solverInfo.m_splitImpulse = true;
-
-    btDispatcherInfo &dispatcherInfo = dynamicWorld->getDispatchInfo();
-    dispatcherInfo.m_enableSatConvex = true;
-
-    btSoftBodyWorldInfo &softWorldInfo = dynamicWorld->getWorldInfo();
-    softWorldInfo.air_density = btScalar(1.2f);
-    softWorldInfo.water_density = 0;
-    softWorldInfo.water_offset = 0;
-    softWorldInfo.water_normal = btVector3(0, 0, 0);
-    softWorldInfo.m_sparsesdf.Initialize();
-
-
-    void Geometry_Init();
-    Geometry_Init();
+    btCollisionConfiguration *conf = new btDefaultCollisionConfiguration;
+    btDynamicsWorld *dynamicWorld = new btDiscreteDynamicsWorld(
+                new btCollisionDispatcher(conf), new btDbvtBroadphase,
+                new btSequentialImpulseConstraintSolver, conf);
 
     glfwInit();
     glfwSetErrorCallback(error_callback);
@@ -65,7 +46,7 @@ int main(int argc, char *argv[])
        // glfwSwapInterval(0);
     }
 
-    GLuint bufferA, tex1, tex2;
+    GLuint bufferA, tex1, tex2, tex3;
     {
         glGenTextures(1, &tex1);
         glBindTexture(GL_TEXTURE_2D, tex1);
@@ -73,21 +54,25 @@ int main(int argc, char *argv[])
         glGenTextures(1, &tex2);
         glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
         glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGB8, RES_X, RES_Y, 2);
+        glGenTextures(1, &tex3);
+        glBindTexture(GL_TEXTURE_2D, tex3);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8, RES_X, RES_Y);
 
-        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        GLenum drawBuffers[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
         glGenFramebuffers(1, &bufferA);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferA);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex1, 0);
         glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex2, 0, 0);
         glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, tex2, 0, 1);
-        glDrawBuffers(2, drawBuffers);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, tex3, 0);        glDrawBuffers(2, drawBuffers);
         glReadBuffer(GL_NONE);
+        glDrawBuffers(3, drawBuffers);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
-    GLuint bufferB, tex3;
+    GLuint bufferB, tex4;
     {
-        glGenTextures(1, &tex3);
-        glBindTexture(GL_TEXTURE_2D, tex3);
+        glGenTextures(1, &tex4);
+        glBindTexture(GL_TEXTURE_2D, tex4);
         glTexStorage2D(GL_TEXTURE_2D, 1, GL_DEPTH_COMPONENT24, RES_W, RES_W);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -97,7 +82,7 @@ int main(int argc, char *argv[])
 
         glGenFramebuffers(1, &bufferB);
         glBindFramebuffer(GL_FRAMEBUFFER, bufferB);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex3, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex4, 0);
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -121,13 +106,18 @@ int main(int argc, char *argv[])
         glfwGetCursorPos(window1, &iMouse.x, &iMouse.y);
         iMouse.z = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_LEFT);
         iMouse.w = glfwGetMouseButton(window1, GLFW_MOUSE_BUTTON_RIGHT);
+        if ( RES_X < iMouse.x || iMouse.x < 0 || RES_Y < iMouse.y || iMouse.y < 0 )
+        {
+            iMouse.y = iMouse.x = 0;
+        }
+
         ivec2 count = {};
 
         {
             static void *libraryHandle = NULL;
             static long lastModTime;
             static const char *libraryFilename="libModule.so";
-            typedef ivec2 (plugFunction1)(float t, uint32_t iFrame, vec2 res, vec4 m, btSoftRigidDynamicsWorld *);
+            typedef ivec2 (plugFunction1)(float t, uint32_t iFrame, vec2 res, vec4 m, btDynamicsWorld *);
             static plugFunction1 *mainAnimation = NULL;
 
             struct stat libStat;
@@ -218,6 +208,8 @@ int main(int argc, char *argv[])
                 glProgramUniform1i(prog1, iChannel1, 1);
                 GLint iChannel2 = glGetUniformLocation(prog1, "iChannel2");
                 glProgramUniform1i(prog1, iChannel2, 2);
+                GLint iChannel3 = glGetUniformLocation(prog1, "iChannel3");
+                glProgramUniform1i(prog1, iChannel3, 3);
             }
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, tex1);
@@ -225,6 +217,8 @@ int main(int argc, char *argv[])
             glBindTexture(GL_TEXTURE_2D_ARRAY, tex2);
             glActiveTexture(GL_TEXTURE2);
             glBindTexture(GL_TEXTURE_2D, tex3);
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, tex4);
             glUseProgram(prog1);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }

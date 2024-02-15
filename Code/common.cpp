@@ -5,6 +5,8 @@ using boost::container::vector;
 #include <glm/glm.hpp>
 using namespace glm;
 
+mat3x3 rotationAlign( vec3 d, vec3 z );
+
 /************************************************************
  *                        Lines                             *
 ************************************************************/
@@ -28,8 +30,6 @@ static const mat3x3 Faces[] = {
     { -1,0,0, 0,1,0,  0,0,-1, }, // +z
     { 1,0,0,  0,1,0,  0,0,1,  }, // -z
 };
-
-mat3x3 rotationAlign( vec3 d, vec3 z );
 
 void lBox(vector<vec3> & V, mat3 rot, vec3 pos)
 {
@@ -157,11 +157,31 @@ void tCapsule(vector<Vertex> &V, vector<Index> &F, float t)
     }
 }
 
-void opElongate(vector<Vertex> &V, vec3 h)
+/************************************************************
+ *                       Processing                         *
+************************************************************/
+
+struct Slice
 {
-    for (Vertex & vert : V)
+    float *data;
+    const size_t length;
+    const size_t stride;
+
+    vec3 *begin() { return (vec3*)(data); }
+    vec3 *end() { return (vec3*)(data + length * stride); }
+};
+
+template <class T> Slice sliced(vector<T> & arr)
+{
+    size_t stride = sizeof arr[0]/sizeof(float);
+    return{ (float*)arr.data(), arr.size(), stride };
+}
+
+void opElongate(Slice arr, vec3 h)
+{
+    for (vec3 & pos : arr)
     {
-        vert.pos += sign(vert.pos)*h;
+        pos += sign(pos) * h;
     }
 }
 
@@ -169,14 +189,6 @@ void opElongate(vector<Vertex> &V, vec3 h)
  *                       Utilities                          *
 ************************************************************/
 
-/// @link https://www.shadertoy.com/view/4djSRW
-float hash11(float p)
-{
-    p = fract(p * .1031);
-    p *= p + 33.33;
-    p *= p + p;
-    return fract(p);
-}
 
 /// @link https://iquilezles.org/articles/noacos/
 mat3x3 rotationAlign( vec3 d, vec3 z )
@@ -225,7 +237,6 @@ mat3 rotateZ(float a)
                 -s, c, 0,
                  0, 0, 1);
 }
-
 
 static mat4 coefs = {
      0, 2, 0, 0,

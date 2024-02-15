@@ -50,10 +50,12 @@ void main()
 #else
 layout (location = 0) out vec4 fragColor;
 layout (location = 1) out vec4 id;
+layout (location = 2) out float bufferA;
 void main()
 {
     // vec3 col = normalize(sin(vec3(13.144,412.32,141.212)*v_id));
     fragColor = vec4(1);
     id = vec4(1);
+    bufferA = 1.;
 }
 #endif

@@ -100,7 +100,8 @@ float calcShadow(vec3 ro, vec3 rd, in sampler2DShadow samp)
 
 uniform sampler2D iChannel0;
 uniform sampler2DArray iChannel1;
-uniform sampler2DShadow iChannel2;
+uniform sampler2D iChannel2;
+uniform sampler2DShadow iChannel3;
 out vec4 fragColor;
 void main()
 {
@@ -108,10 +109,11 @@ void main()
     vec2 screenUV = gl_FragCoord.xy/iResolution.xy;
     vec4 gBuffer1 = texture(iChannel1, vec3(screenUV, 0));
     vec4 gBuffer2 = texture(iChannel1, vec3(screenUV, 1));
+    float bufferA = texture(iChannel2, screenUV).r;
 
-    if (gBuffer2.g == 1.)
+    if (bufferA == 1.)
     {
-        fragColor = gBuffer1;
+        fragColor = vec4(bufferA);
         return;
     }
 
@@ -122,7 +124,7 @@ void main()
 
     // compute rasterized polygon depth in world space
     float dep = texture(iChannel0, screenUV).r *2.0-1.0;
-    vec3 nor = gBuffer1.rgb;
+    vec3 nor = gBuffer1.rgb * 2. - 1.;
     const float n = 0.1, f = 1000.0;
     const float p10 = (f+n)/(f-n), p11 = -2.0*f*n/(f-n); // from perspective matrix
         dep = p11 / ( (dep-p10) * dot(rd, normalize(ta-ro)) );
@@ -159,7 +161,7 @@ void main()
         }
 
         const vec3 sun_dir = normalize(vec3(1,2,3));
-        float sha = calcShadow( ro + rd*min(t, dep) + nor*.006, sun_dir, iChannel2 ) * .7 + .3;
+        float sha = calcShadow( ro + rd*min(t, dep) + nor*.006, sun_dir, iChannel3 ) * .7 + .3;
 
 #define saturate(x) clamp(x,0.,1.)
         float sun_dif = saturate(dot(nor, sun_dir))*.9+.1;
